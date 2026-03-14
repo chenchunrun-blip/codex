@@ -1,0 +1,78 @@
+# Security Alert Triage System Configuration
+
+# LLM Configuration (OpenAI-compatible APIs)
+llm:
+  # Model configuration
+  model: "qwen-plus"  # 或使用 "gpt-4", "qwen-turbo", "qwen-max" 等
+  temperature: 0.0
+  max_tokens: 2000
+
+  # API Configuration
+  api_key_env: "LLM_API_KEY"  # 环境变量名
+  base_url_env: "LLM_BASE_URL"  # API基础URL环境变量名（可选）
+
+  # 预设配置（取消注释以使用）
+  # OpenAI官方
+  # provider: "openai"
+  # model: "gpt-4"
+  # base_url: null
+
+  # 阿里云通义千问
+  # provider: "qwen"
+  # model: "qwen-plus"
+  # base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+  # 其他OpenAI兼容API
+  # provider: "custom"
+  # model: "your-model-name"
+  # base_url: "https://your-api-endpoint.com/v1"
+
+# Vector Store Configuration
+vector_store:
+  type: "chroma"
+  persist_directory: "./data/vector_store"
+  collection_name: "security_alerts"
+
+# Agent Configuration
+agents:
+  timeout: 300  # seconds
+  max_iterations: 10
+  verbose: true
+  # 如果使用国内API，可能需要更长的超时时间
+  # timeout: 600  # seconds
+
+# Risk Scoring
+risk_scoring:
+  weights:
+    severity: 0.3
+    threat_intel: 0.3
+    asset_criticality: 0.2
+    exploitability: 0.2
+
+  thresholds:
+    critical: 90
+    high: 70
+    medium: 40
+    low: 20
+    info: 0
+
+# Threat Intelligence Sources
+threat_intel:
+  enabled_sources:
+    - "virustotal"
+    - "abuse_ch"
+    - "misp"
+  cache_ttl: 3600  # seconds
+
+# Processing
+processing:
+  batch_size: 10
+  max_concurrent: 5
+  enable_cache: true
+
+# Logging
+logging:
+  level: "INFO"
+  file: "./logs/triage.log"
+  rotation: "100 MB"
+  retention: "30 days"

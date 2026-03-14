@@ -1,0 +1,118 @@
+{
+  "assets": [
+    {
+      "asset_id": "SRV-PROD-001",
+      "asset_name": "prod-web-frontend-01",
+      "asset_type": "server",
+      "ip_address": "10.0.1.10",
+      "mac_address": "00:1A:2B:3C:4D:5E",
+      "os_name": "Ubuntu",
+      "os_version": "22.04 LTS",
+      "owner": "platform-team",
+      "location": "CN-BJ-DC1",
+      "criticality": "critical",
+      "business_unit": "engineering",
+      "environment": "production",
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 3,
+        "low": 5
+      },
+      "last_scan": "2025-01-26T10:00:00Z"
+    },
+    {
+      "asset_id": "SRV-PROD-002",
+      "asset_name": "prod-api-gateway-01",
+      "asset_type": "server",
+      "ip_address": "10.0.1.20",
+      "os_name": "Ubuntu",
+      "os_version": "22.04 LTS",
+      "owner": "platform-team",
+      "location": "CN-BJ-DC1",
+      "criticality": "critical",
+      "business_unit": "engineering",
+      "environment": "production",
+      "vulnerabilities": {
+        "critical": 1,
+        "high": 2,
+        "medium": 4,
+        "low": 6
+      },
+      "last_scan": "2025-01-26T10:00:00Z"
+    },
+    {
+      "asset_id": "SRV-PROD-003",
+      "asset_name": "prod-database-primary",
+      "asset_type": "database",
+      "ip_address": "10.0.2.10",
+      "os_name": "Ubuntu",
+      "os_version": "20.04 LTS",
+      "owner": "data-team",
+      "location": "CN-BJ-DC2",
+      "criticality": "critical",
+      "business_unit": "data",
+      "environment": "production",
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 3
+      },
+      "last_scan": "2025-01-26T10:00:00Z"
+    },
+    {
+      "asset_id": "WS-DEV-001",
+      "asset_name": "dev-workstation-john",
+      "asset_type": "workstation",
+      "ip_address": "10.0.10.50",
+      "os_name": "macOS",
+      "os_version": "14.0",
+      "owner": "john.doe",
+      "location": "CN-SH-OFFICE1",
+      "criticality": "medium",
+      "business_unit": "engineering",
+      "environment": "development",
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 4
+      },
+      "last_scan": "2025-01-25T15:00:00Z"
+    },
+    {
+      "asset_id": "NET-FW-001",
+      "asset_name": "office-firewall-main",
+      "asset_type": "network",
+      "ip_address": "10.0.0.1",
+      "mac_address": "00:AA:BB:CC:DD:EE",
+      "os_name": "FortiOS",
+      "os_version": "7.2",
+      "owner": "infra-team",
+      "location": "CN-SH-OFFICE1",
+      "criticality": "high",
+      "business_unit": "infrastructure",
+      "environment": "production",
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 2
+      },
+      "last_scan": "2025-01-26T08:00:00Z"
+    }
+  ],
+  "networks": {
+    "internal_ranges": [
+      "10.0.0.0/8",
+      "172.16.0.0/12",
+      "192.168.0.0/16",
+      "127.0.0.0/8"
+    ],
+    "dmz_ranges": [
+      "10.0.100.0/24"
+    ],
+    "external_ips": []
+  }
+}

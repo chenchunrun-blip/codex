@@ -1,0 +1,100 @@
+{
+  "users": [
+    {
+      "user_id": "john.doe@example.com",
+      "username": "john.doe",
+      "email": "john.doe@example.com",
+      "full_name": "John Doe",
+      "phone": "+86-138-0000-0001",
+      "department": "engineering",
+      "role": "developer",
+      "access_level": "standard",
+      "manager": "alice.smith@example.com",
+      "location": "Shanghai",
+      "is_active": true,
+      "login_history": {
+        "last_login": "2025-01-27T08:30:00Z",
+        "last_location": "Shanghai",
+        "last_ip": "192.168.1.100",
+        "unusual_login": false
+      },
+      "behavior_profile": {
+        "typical_hours": ["09:00-18:00"],
+        "typical_locations": ["Shanghai", "Beijing"],
+        "anomaly_score": 0.15
+      }
+    },
+    {
+      "user_id": "alice.smith@example.com",
+      "username": "alice.smith",
+      "email": "alice.smith@example.com",
+      "full_name": "Alice Smith",
+      "phone": "+86-138-0000-0002",
+      "department": "engineering",
+      "role": "team-lead",
+      "access_level": "elevated",
+      "manager": "bob.jones@example.com",
+      "location": "Beijing",
+      "is_active": true,
+      "login_history": {
+        "last_login": "2025-01-27T08:15:00Z",
+        "last_location": "Beijing",
+        "last_ip": "10.0.10.50",
+        "unusual_login": false
+      },
+      "behavior_profile": {
+        "typical_hours": ["08:30-17:30"],
+        "typical_locations": ["Beijing"],
+        "anomaly_score": 0.10
+      }
+    },
+    {
+      "user_id": "bob.jones@example.com",
+      "username": "bob.jones",
+      "email": "bob.jones@example.com",
+      "full_name": "Bob Jones",
+      "phone": "+86-138-0000-0003",
+      "department": "security",
+      "role": "security-analyst",
+      "access_level": "admin",
+      "manager": null,
+      "location": "Beijing",
+      "is_active": true,
+      "login_history": {
+        "last_login": "2025-01-27T07:45:00Z",
+        "last_location": "Beijing",
+        "last_ip": "10.0.20.100",
+        "unusual_login": false
+      },
+      "behavior_profile": {
+        "typical_hours": ["07:00-19:00"],
+        "typical_locations": ["Beijing", "Shanghai"],
+        "anomaly_score": 0.05
+      }
+    },
+    {
+      "user_id": "sarah.wilson@example.com",
+      "username": "sarah.wilson",
+      "email": "sarah.wilson@example.com",
+      "full_name": "Sarah Wilson",
+      "phone": "+86-138-0000-0004",
+      "department": "data",
+      "role": "data-engineer",
+      "access_level": "standard",
+      "manager": "alice.smith@example.com",
+      "location": "Shenzhen",
+      "is_active": true,
+      "login_history": {
+        "last_login": "2025-01-26T23:00:00Z",
+        "last_location": "Shenzhen",
+        "last_ip": "10.0.30.75",
+        "unusual_login": false
+      },
+      "behavior_profile": {
+        "typical_hours": ["10:00-20:00"],
+        "typical_locations": ["Shenzhen"],
+        "anomaly_score": 0.12
+      }
+    }
+  ]
+}

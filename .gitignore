@@ -20,10 +20,18 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# Virtual Environment
 venv/
 ENV/
 env/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+*.log.*
 
 # IDE
 .vscode/
@@ -32,12 +40,20 @@ env/
 *.swo
 *~
 
-# Testing
-.pytest_cache/
+# OS
+.DS_Store
+Thumbs.db
+
+# Vector store data
+data/vector_store/
+
+# Test coverage
 .coverage
 htmlcov/
+.pytest_cache/
 
-# Debug and temporary files
-debug_*.py
-*.log
-.DS_Store
+# Temporary files
+*.tmp
+*.bak
+.claude/settings.local.json
+services/web_dashboard/node_modules/

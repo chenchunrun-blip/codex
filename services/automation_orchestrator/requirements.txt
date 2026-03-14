@@ -1,0 +1,37 @@
+# Automation Orchestrator Service Requirements
+
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HTTP client for API calls
+httpx>=0.25.0
+
+# SSH client (for remote command execution)
+asyncssh>=2.14.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+
+# Message Queue
+aio-pika>=9.3.0
+
+# Logging
+loguru>=0.7.0
+
+# Utilities
+python-dateutil>=2.8.2
+
+# Shared services (import from parent)
+# -shared.models
+# -shared.database
+# -shared.messaging
+# -shared.errors
+# -shared.utils
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

@@ -1,0 +1,94 @@
+{
+  "iocs": [
+    {
+      "ioc_value": "45.33.32.156",
+      "ioc_type": "ip",
+      "threat_type": "botnet",
+      "source": "internal-threat-intel",
+      "confidence": "high",
+      "description": "Known botnet C2 server",
+      "first_seen": "2024-12-01T00:00:00Z",
+      "last_seen": "2025-01-26T00:00:00Z",
+      "tags": ["c2", "botnet", "malware"],
+      "active": true
+    },
+    {
+      "ioc_value": "192.168.1.100",
+      "ioc_type": "ip",
+      "threat_type": "compromised-internal",
+      "source": "internal-incident-response",
+      "confidence": "high",
+      "description": "Internal host known to be compromised",
+      "first_seen": "2025-01-20T00:00:00Z",
+      "last_seen": "2025-01-25T00:00:00Z",
+      "tags": ["compromised", "internal", "lateral-movement"],
+      "active": true
+    },
+    {
+      "ioc_value": "5d41402abc4b2a76b9719d911017c592",
+      "ioc_type": "hash",
+      "threat_type": "malware",
+      "source": "internal-sandbox",
+      "confidence": "critical",
+      "description": "Known malware hash - ransomware variant",
+      "first_seen": "2025-01-15T00:00:00Z",
+      "last_seen": "2025-01-26T00:00:00Z",
+      "tags": ["ransomware", "malware", "critical"],
+      "active": true
+    },
+    {
+      "ioc_value": "malware-domain.evil.com",
+      "ioc_type": "domain",
+      "threat_type": "c2-server",
+      "source": "internal-dns-analytics",
+      "confidence": "high",
+      "description": "Known C2 domain used by APT group",
+      "first_seen": "2025-01-10T00:00:00Z",
+      "last_seen": "2025-01-25T00:00:00Z",
+      "tags": ["apt", "c2", "dns-tunneling"],
+      "active": true
+    },
+    {
+      "ioc_value": "http://evil-phishing.com/login",
+      "ioc_type": "url",
+      "threat_type": "phishing",
+      "source": "internal-phishing-reports",
+      "confidence": "high",
+      "description": "Reported phishing site targeting our organization",
+      "first_seen": "2025-01-22T00:00:00Z",
+      "last_seen": "2025-01-26T00:00:00Z",
+      "tags": ["phishing", "credential-theft"],
+      "active": true
+    },
+    {
+      "ioc_value": "hacker@scammer.com",
+      "ioc_type": "email",
+      "threat_type": "phishing",
+      "source": "user-reports",
+      "confidence": "medium",
+      "description": "Email address used in phishing campaigns",
+      "first_seen": "2025-01-18T00:00:00Z",
+      "last_seen": "2025-01-24T00:00:00Z",
+      "tags": ["phishing", "social-engineering"],
+      "active": true
+    },
+    {
+      "ioc_value": "3A7F1B2C9D8E4F5A6B7C8D9E0F1A2B3C",
+      "ioc_type": "hash",
+      "threat_type": "malware",
+      "source": "virustotal-intelligence",
+      "confidence": "high",
+      "description": "Trojan downloader detected in sandbox",
+      "first_seen": "2025-01-12T00:00:00Z",
+      "last_seen": "2025-01-25T00:00:00Z",
+      "tags": ["trojan", "downloader", "malware"],
+      "active": true
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "last_updated": "2025-01-27T00:00:00Z",
+    "total_iocs": 7,
+    "active_iocs": 7
+  }
+}
