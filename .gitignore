@@ -55,5 +55,6 @@ htmlcov/
 # Temporary files
 *.tmp
 *.bak
+debug_*.py
 .claude/settings.local.json
 services/web_dashboard/node_modules/
