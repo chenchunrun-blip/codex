@@ -32,7 +32,8 @@ def _escape_prompt_braces(text: str) -> str:
     result = text.replace('{', '{{').replace('}', '}}')
     # Unescape the placeholders we need
     placeholders = ['alert_details', 'threat_intel', 'network_context',
-                   'asset_context', 'user_context', 'historical_context']
+                   'asset_context', 'user_context', 'historical_context',
+                   'correlation_context']
     for ph in placeholders:
         result = result.replace('{{' + ph + '}}', '{' + ph + '}')
     return result
@@ -73,6 +74,9 @@ USER CONTEXT:
 
 HISTORICAL PATTERNS:
 {historical_context}
+
+CORRELATION CONTEXT (attack chains, root cause, threat actor profile):
+{correlation_context}
 
 Provide your analysis in the following JSON format:
 {
@@ -139,6 +143,9 @@ USER CONTEXT:
 HISTORICAL PATTERNS:
 {historical_context}
 
+CORRELATION CONTEXT (attack chains, root cause, threat actor profile):
+{correlation_context}
+
 Provide your analysis in the following JSON format:
 {
   "risk_assessment": {
@@ -197,6 +204,9 @@ USER CONTEXT:
 
 HISTORICAL PATTERNS:
 {historical_context}
+
+CORRELATION CONTEXT (attack chains, root cause, threat actor profile):
+{correlation_context}
 
 Provide your analysis in the following JSON format:
 {
@@ -263,6 +273,9 @@ USER CONTEXT:
 
 HISTORICAL PATTERNS:
 {historical_context}
+
+CORRELATION CONTEXT (attack chains, root cause, threat actor profile):
+{correlation_context}
 
 Provide your analysis in the following JSON format:
 {
@@ -331,6 +344,9 @@ USER CONTEXT:
 
 HISTORICAL PATTERNS:
 {historical_context}
+
+CORRELATION CONTEXT (attack chains, root cause, threat actor profile):
+{correlation_context}
 
 Provide your analysis in the following JSON format:
 {
@@ -407,6 +423,7 @@ Provide your analysis in the following JSON format:
         asset_context: Optional[Dict] = None,
         user_context: Optional[Dict] = None,
         historical_context: Optional[Dict] = None,
+        correlation_context: Optional[Dict] = None,
     ) -> Dict[str, str]:
         """
         Format all context into prompt-ready strings.
@@ -418,6 +435,7 @@ Provide your analysis in the following JSON format:
             asset_context: Asset context
             user_context: User context
             historical_context: Historical patterns
+            correlation_context: Correlation analysis (attack chains, root cause, etc.)
 
         Returns:
             Dictionary with formatted context strings
@@ -429,6 +447,7 @@ Provide your analysis in the following JSON format:
             "asset_context": cls._format_asset_context(asset_context),
             "user_context": cls._format_user_context(user_context),
             "historical_context": cls._format_historical_context(historical_context),
+            "correlation_context": cls._format_correlation_context(correlation_context),
         }
 
     @staticmethod
@@ -539,3 +558,64 @@ Provide your analysis in the following JSON format:
             return f"Found {similar_count} similar alerts in the past 30 days"
         else:
             return "No similar historical alerts found"
+
+    @staticmethod
+    def _format_correlation_context(correlation_context: Optional[Dict]) -> str:
+        """Format correlation analysis results for prompt."""
+        if not correlation_context:
+            return "No correlation data available"
+
+        lines = []
+
+        # Attack chains
+        chains = correlation_context.get("attack_chains", [])
+        if chains:
+            lines.append(f"ATTACK CHAINS DETECTED: {len(chains)}")
+            for chain in chains:
+                stages = [s["stage"] for s in chain.get("stages", [])]
+                lines.append(
+                    f"  - {chain.get('chain_type', 'unknown')}: "
+                    f"{' → '.join(stages)} "
+                    f"(confidence: {chain.get('confidence', 0):.0%}, "
+                    f"severity: {chain.get('estimated_severity', 'unknown')})"
+                )
+        else:
+            lines.append("No attack chains detected")
+
+        # Root cause
+        root_cause = correlation_context.get("root_cause")
+        if root_cause:
+            lines.append(
+                f"\nROOT CAUSE: {root_cause.get('root_cause_type', 'unknown')} "
+                f"(alert {root_cause.get('root_cause_alert_id', 'N/A')})"
+            )
+            lines.append(f"  Reasoning: {root_cause.get('reasoning', 'N/A')}")
+            remediation = root_cause.get("remediation", [])
+            if remediation:
+                lines.append("  Suggested remediation:")
+                for step in remediation[:3]:
+                    lines.append(f"    • {step}")
+
+        # Threat actor profile
+        profile = correlation_context.get("threat_actor_profile")
+        if profile:
+            lines.append(
+                f"\nTHREAT ACTOR PROFILE: "
+                f"motive={profile.get('suspected_motive', 'unknown')}, "
+                f"sophistication={profile.get('sophistication', 'unknown')}"
+            )
+            tactics = profile.get("observed_tactics", [])
+            if tactics:
+                lines.append(f"  Observed tactics: {', '.join(tactics)}")
+
+        # Impact
+        impact = correlation_context.get("impact_analysis")
+        if impact:
+            lines.append(
+                f"\nBLAST RADIUS: "
+                f"{impact.get('ip_count', 0)} IPs, "
+                f"{impact.get('asset_count', 0)} assets, "
+                f"{impact.get('user_count', 0)} users"
+            )
+
+        return "\n".join(lines)

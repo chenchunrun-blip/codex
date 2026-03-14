@@ -36,6 +36,15 @@ from shared.models import (
     WorkflowExecution,
     WorkflowStatus,
 )
+from shared.correlation import CorrelationEngine
+from shared.metrics import (
+    ATTACK_CHAINS_DETECTED,
+    CORRELATIONS_PERFORMED,
+    INCIDENT_RESPONSES_TRIGGERED,
+    WORKFLOWS_COMPLETED,
+    WORKFLOWS_STARTED,
+    MetricsCollector,
+)
 from shared.utils import Config, get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +57,11 @@ consumer: MessageConsumer = None
 # In-memory workflow execution storage (use database in production)
 active_executions: Dict[str, WorkflowExecution] = {}
 workflow_definitions: Dict[str, WorkflowDefinition] = {}
+
+# Recent alerts cache for correlation (bounded ring buffer)
+recent_alerts_cache: List[Dict[str, Any]] = []
+MAX_RECENT_ALERTS = 200
+metrics = MetricsCollector("workflow_engine")
 
 # Load default workflow definitions
 DEFAULT_WORKFLOWS = {
@@ -68,6 +82,12 @@ DEFAULT_WORKFLOWS = {
                 "type": "activity",
                 "description": "AI triage analysis",
                 "service": "ai_triage_agent",
+            },
+            {
+                "name": "correlate",
+                "type": "activity",
+                "description": "Correlate alert with recent alerts for attack chain detection",
+                "service": "correlation",
             },
             {
                 "name": "auto_response",
@@ -171,8 +191,27 @@ async def execute_workflow_step(
 
     try:
         if step_type == "activity":
-            # Execute service activity
             service = step.get("service")
+
+            # --- Built-in correlation activity ---------------------------------
+            if service == "correlation":
+                correlation_result = _run_correlation(execution.input)
+                execution.input["correlation"] = correlation_result
+
+                # Auto-escalate when attack chains are detected
+                chains = correlation_result.get("attack_chains", [])
+                if chains:
+                    logger.warning(
+                        f"Attack chain(s) detected for execution {execution.execution_id}: "
+                        f"{[c['chain_type'] for c in chains]}"
+                    )
+                    execution.input["risk_level"] = "CRITICAL"
+                    # Trigger incident-response workflow asynchronously
+                    asyncio.create_task(_trigger_incident_response(execution, correlation_result))
+
+                return {"status": "completed", "output": correlation_result}
+
+            # --- Generic service activity --------------------------------------
             if service:
                 # Publish message to service
                 await publisher.publish(
@@ -520,6 +559,77 @@ async def cancel_execution(execution_id: str):
     }
 
 
+# ---------------------------------------------------------------------------
+# Correlation helpers
+# ---------------------------------------------------------------------------
+
+def _run_correlation(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Run correlation analysis on the current alert against recent cache."""
+    alert = input_data.get("alert") or input_data
+    metrics.inc(CORRELATIONS_PERFORMED)
+    result = CorrelationEngine.correlate(alert, recent_alerts_cache)
+
+    chains = result.get("attack_chains", [])
+    if chains:
+        metrics.inc(ATTACK_CHAINS_DETECTED, len(chains))
+
+    # Cache this alert for future correlations
+    if alert.get("alert_id"):
+        recent_alerts_cache.append(alert)
+        # Trim to bounded size
+        while len(recent_alerts_cache) > MAX_RECENT_ALERTS:
+            recent_alerts_cache.pop(0)
+
+    return result
+
+
+async def _trigger_incident_response(
+    source_execution: WorkflowExecution,
+    correlation_result: Dict[str, Any],
+) -> None:
+    """Auto-trigger an incident-response workflow when attack chains are detected."""
+    try:
+        ir_input = {
+            "triggered_by": source_execution.execution_id,
+            "alert": source_execution.input.get("alert", {}),
+            "correlation": correlation_result,
+            "reason": "Automated escalation: attack chain detected",
+        }
+        execution = start_workflow_execution("incident-response", ir_input)
+        metrics.inc(INCIDENT_RESPONSES_TRIGGERED)
+        logger.info(
+            f"Auto-triggered incident-response workflow {execution.execution_id} "
+            f"from {source_execution.execution_id}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to auto-trigger incident-response: {e}", exc_info=True)
+
+
+@app.post("/api/v1/correlate", response_model=Dict[str, Any])
+async def correlate_alert(alert_data: Dict[str, Any]):
+    """
+    On-demand correlation analysis for an alert.
+
+    Runs attack chain detection, root cause analysis, threat actor profiling,
+    and impact analysis against recently cached alerts.
+    """
+    try:
+        result = _run_correlation(alert_data)
+
+        return {
+            "success": True,
+            "data": result,
+            "meta": {
+                "timestamp": datetime.utcnow().isoformat(),
+                "request_id": str(uuid.uuid4()),
+                "recent_alerts_cached": len(recent_alerts_cache),
+            },
+        }
+    except Exception as e:
+        logger.error(f"Correlation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Correlation failed: {str(e)}")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -531,6 +641,10 @@ async def health_check():
             "definitions": len(workflow_definitions),
             "active_executions": len(active_executions),
         },
+        "correlation": {
+            "recent_alerts_cached": len(recent_alerts_cache),
+        },
+        "metrics": metrics.to_dict(),
     }
 
 

@@ -90,6 +90,7 @@ class RiskScoringEngine:
         network_context: Optional[Dict[str, Any]] = None,
         user_context: Optional[Dict[str, Any]] = None,
         historical_data: Optional[Dict[str, Any]] = None,
+        historical_multiplier_override: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate composite risk score for an alert.
@@ -126,7 +127,11 @@ class RiskScoringEngine:
             )
 
             # Calculate historical adjustment
-            historical_multiplier = self._calculate_historical_multiplier(historical_data)
+            # Prefer DB-backed multiplier from HistoricalLearningEngine when available
+            if historical_multiplier_override is not None:
+                historical_multiplier = historical_multiplier_override
+            else:
+                historical_multiplier = self._calculate_historical_multiplier(historical_data)
 
             # Get alert type multiplier
             alert_type_str = alert.get("alert_type", "other")

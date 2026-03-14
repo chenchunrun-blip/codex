@@ -40,6 +40,13 @@ from shared.models import (
     SecurityAlert,
     SuccessResponse,
 )
+from shared.deduplication import AlertDeduplicator
+from shared.metrics import (
+    ALERTS_DEDUPLICATED,
+    ALERTS_INGESTED,
+    DEDUP_CHECKS,
+    MetricsCollector,
+)
 from shared.utils import Config, get_logger
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -58,6 +65,8 @@ logger.info("Rate limiter initialized")
 # Global variables
 db_manager: DatabaseManager = None
 message_publisher: MessagePublisher = None
+alert_deduplicator: AlertDeduplicator = None
+metrics = MetricsCollector("alert_ingestor")
 
 # In-memory rate limit tracking (fallback if slowapi not available)
 rate_limit_tracker: Dict[str, List[datetime]] = defaultdict(list)
@@ -94,7 +103,7 @@ async def check_rate_limit(request: Request) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global db_manager, message_publisher
+    global db_manager, message_publisher, alert_deduplicator
 
     # Startup
     logger.info("Starting Alert Ingestor Service")
@@ -114,6 +123,26 @@ async def lifespan(app: FastAPI):
         message_publisher = MessagePublisher(config.rabbitmq_url)
         await message_publisher.connect()
         logger.info("✓ Message publisher connected")
+
+        # Initialize alert deduplicator (Redis-backed when available)
+        redis_client = None
+        redis_url = os.getenv("REDIS_URL", config.get("redis_url", None))
+        if redis_url:
+            try:
+                import redis.asyncio as aioredis
+                redis_client = aioredis.from_url(redis_url, decode_responses=True)
+                await redis_client.ping()
+                logger.info("✓ Redis connected for deduplication")
+            except Exception as e:
+                logger.warning(f"Redis unavailable, using in-memory dedup: {e}")
+                redis_client = None
+
+        dedup_window = int(os.getenv("DEDUP_WINDOW_SECONDS", "3600"))
+        alert_deduplicator = AlertDeduplicator(
+            redis_client=redis_client,
+            time_window_seconds=dedup_window,
+        )
+        logger.info(f"✓ Alert deduplicator initialized (window={dedup_window}s)")
 
         logger.info("✓ Alert Ingestor Service started successfully")
 
@@ -174,6 +203,8 @@ async def health_check():
             "checks": {
                 "database": db_health,
                 "message_queue": "connected" if message_publisher else "disconnected",
+                "deduplication": alert_deduplicator.get_stats() if alert_deduplicator else "disabled",
+                "metrics": metrics.to_dict(),
             },
         }
     except Exception as e:
@@ -223,6 +254,29 @@ async def ingest_alert(request: Request, alert: SecurityAlert):
                 detail="alert_id is required",
             )
 
+        # Deduplication check
+        if alert_deduplicator:
+            metrics.inc(DEDUP_CHECKS)
+            is_dup = await alert_deduplicator.check_and_register(alert)
+            if is_dup:
+                metrics.inc(ALERTS_DEDUPLICATED)
+                logger.info(
+                    "Duplicate alert skipped",
+                    extra={"alert_id": alert.alert_id, "client_ip": request.client.host},
+                )
+                return SuccessResponse(
+                    data={
+                        "ingestion_id": ingestion_id,
+                        "alert_id": alert.alert_id,
+                        "status": "duplicate",
+                        "message": "Alert identified as duplicate and skipped",
+                    },
+                    meta=ResponseMeta(
+                        timestamp=datetime.utcnow(),
+                        request_id=ingestion_id,
+                    ),
+                )
+
         # Persist to database
         async with db_manager.get_session() as session:
             await session.execute(
@@ -260,6 +314,7 @@ async def ingest_alert(request: Request, alert: SecurityAlert):
 
         # Publish to message queue
         await message_publisher.publish("alert.raw", message)
+        metrics.inc(ALERTS_INGESTED)
 
         # Log successful ingestion
         logger.info(

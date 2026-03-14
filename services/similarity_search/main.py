@@ -15,6 +15,7 @@
 """Similarity Search Service - Uses ChromaDB for vector similarity search."""
 
 import json
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -37,6 +38,7 @@ from shared.models import (
     VectorSearchRequest,
     VectorSearchResponse,
 )
+from shared.clustering import AlertClusteringEngine
 from shared.utils import Config, get_logger
 
 logger = get_logger(__name__)
@@ -44,6 +46,7 @@ config = Config()
 
 db_manager = None
 consumer = None
+clustering_engine: AlertClusteringEngine = None
 
 # ChromaDB and embedding model will be initialized on startup
 chroma_client = None
@@ -142,7 +145,7 @@ def generate_embedding(text: str) -> List[float]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
-    global db_manager, consumer, chroma_client, collection, embedding_model
+    global db_manager, consumer, chroma_client, collection, embedding_model, clustering_engine
 
     logger.info("Starting Similarity Search service...")
 
@@ -155,6 +158,11 @@ async def lifespan(app: FastAPI):
 
     # Initialize ChromaDB
     chroma_client, collection = initialize_chromadb()
+
+    # Initialize clustering engine
+    sim_threshold = float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.65"))
+    clustering_engine = AlertClusteringEngine(similarity_threshold=sim_threshold)
+    logger.info(f"✓ Clustering engine initialized (threshold={sim_threshold})")
 
     # Initialize message consumer (optional, for indexing alerts)
     try:
@@ -435,6 +443,78 @@ async def delete_from_index(alert_id: str):
         }
 
 
+@app.post("/api/v1/cluster", response_model=Dict[str, Any])
+async def cluster_alert(alert: SecurityAlert):
+    """
+    Find or create a cluster for the given alert.
+
+    Uses ChromaDB vector similarity combined with structural metadata
+    similarity to identify related alerts and group them.
+    """
+    try:
+        # Step 1: Get vector-similar alerts from ChromaDB
+        alert_text = alert_to_text(alert)
+        query_embedding = generate_embedding(alert_text)
+
+        vector_similarities = []
+        candidate_alerts = []
+
+        chroma_results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=20,
+        )
+
+        if chroma_results["ids"] and chroma_results["ids"][0]:
+            for i, aid in enumerate(chroma_results["ids"][0]):
+                if aid == alert.alert_id:
+                    continue
+                sim_score = 1.0 - chroma_results["distances"][0][i]
+                vector_similarities.append((aid, sim_score))
+
+                meta = chroma_results["metadatas"][0][i] if chroma_results["metadatas"] else {}
+                candidate_alerts.append({
+                    "alert_id": aid,
+                    "alert_type": meta.get("alert_type", ""),
+                    "severity": meta.get("severity", ""),
+                    "source_ip": meta.get("source_ip"),
+                    "target_ip": meta.get("target_ip"),
+                    "asset_id": meta.get("asset_id"),
+                    "file_hash": meta.get("file_hash"),
+                })
+
+        # Step 2: Run clustering engine
+        alert_dict = alert.model_dump()
+        # Ensure enum values are strings
+        alert_dict["alert_type"] = alert.alert_type.value
+        alert_dict["severity"] = alert.severity.value
+
+        cluster = clustering_engine.find_or_create_cluster(
+            alert=alert_dict,
+            candidate_alerts=candidate_alerts,
+            vector_similarities=vector_similarities,
+        )
+
+        result = {
+            "alert_id": alert.alert_id,
+            "cluster": cluster.to_dict() if cluster else None,
+            "clustered": cluster is not None,
+        }
+
+        return {
+            "success": True,
+            "data": result,
+            "meta": {
+                "timestamp": datetime.utcnow().isoformat(),
+                "request_id": str(uuid.uuid4()),
+                "clustering_stats": clustering_engine.get_stats(),
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Clustering failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -444,6 +524,7 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "embedding_model": "all-MiniLM-L6-v2",
         "chromadb": "connected" if chroma_client else "disconnected",
+        "clustering": clustering_engine.get_stats() if clustering_engine else "disabled",
     }
 
     if collection:

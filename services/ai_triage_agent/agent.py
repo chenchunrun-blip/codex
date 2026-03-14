@@ -84,6 +84,7 @@ class AITriageAgent:
         asset_context: Optional[Dict[str, Any]] = None,
         user_context: Optional[Dict[str, Any]] = None,
         historical_context: Optional[Dict[str, Any]] = None,
+        correlation_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Perform comprehensive AI analysis of security alert.
@@ -116,7 +117,7 @@ class AITriageAgent:
             # Step 2: Determine LLM routing based on complexity
             model_used = self._route_to_model(alert, risk_assessment)
 
-            # Step 3: Generate LLM prompt
+            # Step 3: Generate LLM prompt (with correlation context)
             context = self.prompt_templates.format_context(
                 alert=alert,
                 threat_intel=threat_intel,
@@ -124,6 +125,7 @@ class AITriageAgent:
                 asset_context=asset_context,
                 user_context=user_context,
                 historical_context=historical_context,
+                correlation_context=correlation_context,
             )
 
             prompt = self.prompt_templates.get_prompt_for_alert_type(
@@ -149,6 +151,7 @@ class AITriageAgent:
                     "asset": asset_context,
                     "user": user_context,
                     "historical": historical_context,
+                    "correlation": correlation_context,
                 },
             )
 
@@ -386,6 +389,7 @@ class AITriageAgent:
             "model_version": "v1.0",
             "processing_time_ms": None,  # Could be calculated if needed
             "breakdown": risk_assessment.get("breakdown", {}),
+            "correlation": self._summarize_correlation(contexts.get("correlation")),
             "created_at": datetime.utcnow().isoformat(),
         }
 
@@ -511,6 +515,27 @@ class AITriageAgent:
                         cves.extend(matches)
 
         return list(set(cves))
+
+    @staticmethod
+    def _summarize_correlation(correlation: Optional[Dict]) -> Optional[Dict[str, Any]]:
+        """Summarize correlation results for inclusion in triage output."""
+        if not correlation:
+            return None
+
+        chains = correlation.get("attack_chains", [])
+        root_cause = correlation.get("root_cause")
+        profile = correlation.get("threat_actor_profile", {})
+        impact = correlation.get("impact_analysis", {})
+
+        return {
+            "attack_chains_detected": len(chains),
+            "chain_types": [c.get("chain_type") for c in chains],
+            "has_root_cause": root_cause is not None,
+            "root_cause_type": root_cause.get("root_cause_type") if root_cause else None,
+            "threat_motive": profile.get("suspected_motive"),
+            "threat_sophistication": profile.get("sophistication"),
+            "blast_radius": impact.get("blast_radius", 0),
+        }
 
     def _create_fallback_result(self, alert: Dict, error: str) -> Dict[str, Any]:
         """Create fallback triage result when analysis fails."""
