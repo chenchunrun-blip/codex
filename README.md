@@ -166,6 +166,7 @@ marqdex/
 │   ├── templates/               # Template center
 │   ├── files/                   # File management
 │   ├── editor/                  # Markdown editor
+│   ├── operations/              # Operations hub (health/status/queue)
 │   └── settings/                # Settings page
 ├── components/                   # React components
 │   ├── auth/                    # Auth components

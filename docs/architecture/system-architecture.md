@@ -24,6 +24,8 @@ graph TB
         CommentAPI[Comment API]
         NotificationAPI[Notification API]
         AIAPI[AI Generation API]
+        TaskAPI[Task Orchestration API]
+        OpsAPI[Operations API]
     end
 
     subgraph "Business Logic Layer"
@@ -32,6 +34,8 @@ graph TB
         ActivityLogService[Activity Log Service]
         FileVersionService[File Version Service]
         AIService[AI Content Service]
+        TaskEngine[Task Engine<br/>Dispatch + Queue + Review]
+        OpsEngine[Operations Engine<br/>Health + Status + Metrics]
     end
 
     subgraph "Real-time Layer"
@@ -63,6 +67,8 @@ graph TB
     Pages --> CommentAPI
     Pages --> NotificationAPI
     Pages --> AIAPI
+    Pages --> TaskAPI
+    Pages --> OpsAPI
 
     AuthAPI --> RBAC
     TeamAPI --> RBAC
@@ -83,6 +89,13 @@ graph TB
 
     AIAPI --> AIService
     AIService --> OpenAI
+
+    TaskAPI --> TaskEngine
+    TaskAPI --> RBAC
+    OpsAPI --> OpsEngine
+    OpsAPI --> RBAC
+    TaskEngine --> Prisma
+    OpsEngine --> Prisma
 
     FileAPI --> Liveblocks
     Liveblocks --> WebSocket
@@ -238,6 +251,22 @@ graph LR
 - Template-based content generation
 - AI-powered content enhancement
 - Custom AI endpoint support
+
+### 11. Human-Agent Task Orchestration
+- Markdown-first TaskSpec workflow for task creation and handoff
+- Assignment modes: human, direct agent, and agent queue
+- Queue pull/dispatch flows (manual and scheduler-triggered)
+- Deliverable submit/review/approve/reject lifecycle with requeue
+- Agent queue console with domain-based filtering and stale-agent detection
+
+### 12. Operations Hub (`/operations`)
+- Centralized runtime observability page with project-scoped filtering
+- Operations health banner (HEALTHY / DEGRADED / CRITICAL) with issue listing
+- Operations status panel (scheduler, queue, agent run, report metrics)
+- Task operations snapshot (backlog, execution, risk, dispatch history)
+- Agent queue status with domain-level backlog and at-risk detection
+- Session storage caching with stale-data fallback on fetch failures
+- Page-visibility-aware auto-refresh and manual retry across all panels
 
 ## Deployment Architecture
 

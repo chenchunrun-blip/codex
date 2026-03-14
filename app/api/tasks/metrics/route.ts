@@ -109,7 +109,8 @@ async function loadBacklogSummary(
       },
       select: {
         functionalAgentType: true
-      }
+      },
+      take: 10000
     })
   } catch (error) {
     logCompatibilityFallback("Task metrics backlog query fallback #1:", error)
@@ -124,7 +125,8 @@ async function loadBacklogSummary(
       },
       select: {
         functionalAgentType: true
-      }
+      },
+      take: 10000
     })
   } catch (error) {
     logCompatibilityFallback("Task metrics backlog query fallback #2:", error)
@@ -138,7 +140,8 @@ async function loadBacklogSummary(
       },
       select: {
         id: true
-      }
+      },
+      take: 10000
     })
     backlogTasks = legacyRows.map(() => ({ functionalAgentType: "LEGACY" }))
   } catch (error) {
@@ -241,7 +244,8 @@ async function loadRiskCounts(projectIds: string[]): Promise<{
     },
     select: {
       dueDate: true
-    }
+    },
+    take: 5000
   })
 
   const nowMs = Date.now()

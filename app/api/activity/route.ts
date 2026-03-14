@@ -41,6 +41,10 @@ export async function GET(req: Request) {
     // Build where clause
     const where: any = {}
 
+    // Default time window: last 90 days to avoid full table scans
+    const sinceDefault = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    where.createdAt = { gte: sinceDefault }
+
     if (projectId) {
       if (!accessibleProjectIds.includes(projectId)) {
         return NextResponse.json(
@@ -104,12 +108,9 @@ export async function GET(req: Request) {
       take: limit
     })
 
-    // Get count
-    const count = await db.activityLog.count({ where })
-
     return NextResponse.json({
       activities,
-      count,
+      count: activities.length,
       hasMore: activities.length === limit
     })
   } catch (error) {

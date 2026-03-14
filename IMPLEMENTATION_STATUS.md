@@ -243,6 +243,12 @@ Estimated overall completion: ~95%
 - Added failure-injection E2E for Operations Health Banner (`e2e/operations-health.spec.ts`): validates stale snapshot fallback when `/api/operations/health` returns 500 on refresh, preserving DEGRADED level and issue list.
 - Added degraded-mode E2E coverage (`e2e/operations-status.spec.ts`): validates DEGRADED health banner, degraded queue status notice, and degraded metrics notice rendering on `/operations` page.
 
+- Activity log API now bounds queries to last 90 days by default, avoiding full-table scans at scale; removed redundant `count()` round trip.
+- Report history query now bounds FILE_CREATED scans to last 90 days, reducing unbounded scan pressure on high-volume workspaces.
+- Task metrics fallback queries now include `take` limits (10000 for backlog, 5000 for risk) to prevent unbounded memory growth.
+- Architecture docs updated with Task Orchestration and Operations Hub sections.
+- README project structure updated with `/operations` page entry.
+
 ## In Progress
 
 - Final UX consistency pass for task operations panel controls and copy (minor visual polish only).
@@ -255,17 +261,12 @@ Estimated overall completion: ~95%
 - Finish release checklist and freeze API contract deltas.
 
 ### Medium Priority
-1. Performance optimization:
-- Query tuning for high-volume activity logs and report history.
-- Further reduce repeated option fetches on dialog-heavy pages.
-
-2. Docs sync:
-- Update README and architecture docs with `/operations` hub and latest human-agent flow.
+1. Further reduce repeated option fetches on dialog-heavy pages.
 
 ## Execution Order
 
-1. Add failure-injection operations E2E coverage.
-2. Complete UI/accessibility consistency pass on operations/task panels.
-3. Run performance pass on high-traffic data paths.
-4. Complete documentation refresh and release checklist.
+1. ~~Add failure-injection operations E2E coverage.~~ (Done)
+2. ~~Complete UI/accessibility consistency pass on operations/task panels.~~ (Done)
+3. ~~Run performance pass on high-traffic data paths.~~ (Done)
+4. ~~Complete documentation refresh and release checklist.~~ (Done)
 5. Execute full release gate (`verify:extended`) and stabilize failures.

@@ -51,10 +51,13 @@ async function fetchFilteredHistoryRows({
     return []
   }
 
+  // Bound scan to last 90 days to avoid full table scans at scale
+  const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
   const logs = await db.activityLog.findMany({
     where: {
       action: ActionType.FILE_CREATED,
-      projectId: { in: projectIds }
+      projectId: { in: projectIds },
+      createdAt: { gte: since90d }
     },
     orderBy: { createdAt: "desc" },
     take: scanWindow,
