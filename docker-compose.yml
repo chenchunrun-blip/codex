@@ -1,0 +1,89 @@
+# Production Docker Compose Configuration
+# Usage: docker compose up -d
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: marqdex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-marqdex}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-marqdex_secret}
+      POSTGRES_DB: ${DB_NAME:-marqdex}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-marqdex} -d ${DB_NAME:-marqdex}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marqdex-network
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marqdex-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${DB_USER:-marqdex}:${DB_PASSWORD:-marqdex_secret}@postgres:5432/${DB_NAME:-marqdex}?schema=public
+
+      # NextAuth
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+
+      # Encryption
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+
+      # Email (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+
+      # Liveblocks (optional)
+      LIVEBLOCKS_SECRET: ${LIVEBLOCKS_SECRET:-}
+      LIVEBLOCKS_PUBLIC_KEY: ${LIVEBLOCKS_PUBLIC_KEY:-}
+
+      # App Config
+      APP_NAME: ${APP_NAME:-MarqDex}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      NODE_ENV: production
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    networks:
+      - marqdex-network
+
+  # Nginx Reverse Proxy (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: marqdex-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    networks:
+      - marqdex-network
+    profiles:
+      - nginx
+
+networks:
+  marqdex-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

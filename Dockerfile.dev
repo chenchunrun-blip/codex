@@ -1,0 +1,37 @@
+# Development Dockerfile with hot reload
+FROM node:20-alpine
+
+RUN apk add --no-cache libc6-compat openssl gcompat
+
+# Fix for esbuild on Alpine Linux
+ENV ESBUILD_BINARY_LOCATION=/app/node_modules/esbuild/bin/esbuild
+
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy package files
+COPY package.json pnpm-lock.yaml* ./
+COPY prisma ./prisma/
+
+# Install dependencies
+RUN pnpm install
+
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Copy source code
+COPY . .
+
+# Expose port
+EXPOSE 3000
+
+# Set environment
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Start development server with hot reload
+CMD ["pnpm", "dev"]
