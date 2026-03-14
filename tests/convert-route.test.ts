@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@jest/globals"
 
+jest.mock("@/lib/db", () => ({
+  db: {}
+}))
+
 jest.mock("@/lib/auth/rbac", () => ({
   requireAuth: jest.fn(async () => ({
     user: { id: "user_1", email: "u1@example.com" }

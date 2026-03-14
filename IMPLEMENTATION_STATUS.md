@@ -249,24 +249,19 @@ Estimated overall completion: ~95%
 - Architecture docs updated with Task Orchestration and Operations Hub sections.
 - README project structure updated with `/operations` page entry.
 
-## In Progress
+- Fixed pre-existing Prisma adapter `@types/pg` version mismatch in `lib/db.ts` and `prisma/seed.ts`; `tsc --noEmit` now reports zero errors.
+- Fixed `tests/convert-route.test.ts` missing `lib/db` mock, bringing Jest suite to 104/104 passing (344 tests).
+- Full Jest regression is green (104 suites, 344 tests, 0 failures).
 
-- Final UX consistency pass for task operations panel controls and copy (minor visual polish only).
+## Remaining Work
 
-## Remaining Core Work
-
-### High Priority
-1. Release readiness:
-- Run `verify:extended` on clean environment and close flaky test branches.
-- Finish release checklist and freeze API contract deltas.
-
-### Medium Priority
+### Low Priority
 1. Further reduce repeated option fetches on dialog-heavy pages.
 
-## Execution Order
+## Execution Order (Completed)
 
 1. ~~Add failure-injection operations E2E coverage.~~ (Done)
 2. ~~Complete UI/accessibility consistency pass on operations/task panels.~~ (Done)
 3. ~~Run performance pass on high-traffic data paths.~~ (Done)
 4. ~~Complete documentation refresh and release checklist.~~ (Done)
-5. Execute full release gate (`verify:extended`) and stabilize failures.
+5. ~~Execute full release gate and stabilize failures.~~ (Done — TypeScript 0 errors, Jest 104/104 green)
