@@ -352,4 +352,177 @@ test.describe("Operations Status Entry Flow", () => {
     await expect(page.getByText("Showing last successful snapshot.")).toBeVisible()
     await expect(page.getByText("3/4 successful runs")).toBeVisible()
   })
+
+  test("keeps last operations status snapshot when refresh fails", async ({ page }) => {
+    await registerAndLogin(page, {
+      emailPrefix: "ops-status-fallback-e2e",
+      name: "Ops Status Fallback E2E User",
+      nicknamePrefix: "ops-status-fallback"
+    })
+
+    await page.route("**/api/projects**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([{ id: "p1", name: "Project Alpha", teamId: "t1" }])
+      })
+    })
+
+    await page.route("**/api/operations/health**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          sourceProjectId: null,
+          health: { level: "HEALTHY", issueCount: 0, issues: [] }
+        })
+      })
+    })
+
+    await page.route("**/api/agents/queue-status**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ projectId: null, domains: [] })
+      })
+    })
+
+    await page.route("**/api/tasks/metrics**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          scope: { projectId: null, days: 14 },
+          backlog: { total: 0, byQueueDomain: [] },
+          execution: { runs: 0, success: 0, failed: 0, successRate: 0 },
+          completion: { completedTasks: 0, avgCompletionHours: null },
+          risk: { overdue: 0, dueIn24h: 0, dueIn3d: 0, total: 0 },
+          failures: [], dispatchHistory: [],
+          retryableErrorCodes: [], availableRetryableErrorCodes: [],
+          retryConfigUpdatedAt: null, retryConfigSource: "default",
+          dispatchPolicyOnlineOnly: false, dispatchPolicySource: "default"
+        })
+      })
+    })
+
+    let statusRequestCount = 0
+    await page.route("**/api/operations/status**", async (route) => {
+      statusRequestCount += 1
+      if (statusRequestCount === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            generatedAt: new Date().toISOString(),
+            sourceProjectId: null,
+            projectCount: 2,
+            queueBacklogTotal: 5,
+            queueDomains: [{ domain: "ENGINEERING", backlog: 5 }],
+            scheduler: {
+              batchesStarted24h: 3, batchesCompleted24h: 3,
+              autoDispatched24h: 6, autoDispatchFailed24h: 0,
+              lastBatchAt: new Date().toISOString()
+            },
+            agentRuns: { triggered24h: 8, failed24h: 2 },
+            reports: { saved24h: 4, topTypes: [{ type: "operations_status", count: 4 }] }
+          })
+        })
+        return
+      }
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Internal error", code: "INTERNAL_ERROR" })
+      })
+    })
+
+    await page.goto("/operations")
+    await expect(page.getByRole("heading", { name: "Operations Status" })).toBeVisible()
+    await expect(page.getByText("5").first()).toBeVisible()
+
+    await page.getByRole("button", { name: "Refresh operations status" }).click()
+    await expect(page.getByText("Showing last successful snapshot.")).toBeVisible()
+    await expect(page.getByText("5").first()).toBeVisible()
+  })
+
+  test("shows degraded notice on queue status response", async ({ page }) => {
+    await registerAndLogin(page, {
+      emailPrefix: "ops-degraded-e2e",
+      name: "Ops Degraded E2E User",
+      nicknamePrefix: "ops-degraded"
+    })
+
+    await page.route("**/api/projects**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([{ id: "p1", name: "Project Alpha", teamId: "t1" }])
+      })
+    })
+
+    await page.route("**/api/operations/health**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          sourceProjectId: null,
+          health: { level: "DEGRADED", issueCount: 1, issues: [{ code: "QUEUE_BACKLOG_HIGH", level: "DEGRADED", message: "Queue backlog is elevated (12)." }] }
+        })
+      })
+    })
+
+    await page.route("**/api/operations/status**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          sourceProjectId: null,
+          projectCount: 1, queueBacklogTotal: 12,
+          queueDomains: [{ domain: "ENGINEERING", backlog: 12 }],
+          scheduler: { batchesStarted24h: 1, batchesCompleted24h: 1, autoDispatched24h: 1, autoDispatchFailed24h: 0, lastBatchAt: new Date().toISOString() },
+          agentRuns: { triggered24h: 1, failed24h: 0 },
+          reports: { saved24h: 0, topTypes: [] }
+        })
+      })
+    })
+
+    await page.route("**/api/tasks/metrics**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          scope: { projectId: null, days: 14 },
+          degraded: true,
+          backlog: { total: 12, byQueueDomain: [{ domain: "ENGINEERING", count: 12 }] },
+          execution: { runs: 1, success: 1, failed: 0, successRate: 100 },
+          completion: { completedTasks: 0, avgCompletionHours: null },
+          risk: { overdue: 0, dueIn24h: 0, dueIn3d: 0, total: 0 },
+          failures: [], dispatchHistory: [],
+          retryableErrorCodes: [], availableRetryableErrorCodes: [],
+          retryConfigUpdatedAt: null, retryConfigSource: "default",
+          dispatchPolicyOnlineOnly: false, dispatchPolicySource: "default"
+        })
+      })
+    })
+
+    await page.route("**/api/agents/queue-status**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          projectId: null,
+          domains: [{ domain: "ENGINEERING", backlog: 12, activeAgents: 1, onlineAgents: 1 }],
+          degraded: true
+        })
+      })
+    })
+
+    await page.goto("/operations")
+    await expect(page.getByText("Operations Health: DEGRADED")).toBeVisible()
+    await expect(page.getByText("Queue backlog is elevated (12).")).toBeVisible()
+    await expect(page.getByText(/temporarily degraded/i)).toBeVisible()
+  })
 })

@@ -173,10 +173,10 @@ export function AgentQueueStatus({ projectId }: AgentQueueStatusProps) {
           <table className="min-w-full text-xs">
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="py-2 pr-4">Domain</th>
-                <th className="py-2 pr-4">Backlog</th>
-                <th className="py-2 pr-4">Online Agents</th>
-                <th className="py-2 pr-4">Active Agents</th>
+                <th scope="col" className="py-2 pr-4">Domain</th>
+                <th scope="col" className="py-2 pr-4">Backlog</th>
+                <th scope="col" className="py-2 pr-4">Online Agents</th>
+                <th scope="col" className="py-2 pr-4">Active Agents</th>
               </tr>
             </thead>
             <tbody>
@@ -186,7 +186,7 @@ export function AgentQueueStatus({ projectId }: AgentQueueStatusProps) {
                     <div className="flex items-center gap-2">
                       <span>{row.domain}</span>
                       {row.backlog > 0 && row.onlineAgents === 0 && (
-                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+                        <span aria-label={`${row.domain} domain is at risk`} className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
                           AT RISK
                         </span>
                       )}

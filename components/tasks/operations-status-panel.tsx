@@ -61,6 +61,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+const STATUS_SNAPSHOT_KEY_PREFIX = "operations-status:snapshot:"
+
+function getSnapshotKey(projectId?: string) {
+  return `${STATUS_SNAPSHOT_KEY_PREFIX}${projectId || "all"}`
+}
+
 export function OperationsStatusPanel({ projectId }: OperationsStatusPanelProps) {
   const [data, setData] = useState<OperationsStatusResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -113,6 +119,11 @@ export function OperationsStatusPanel({ projectId }: OperationsStatusPanelProps)
       }
       const payload = (await response.json()) as OperationsStatusResponse
       setData(payload)
+      try {
+        window.sessionStorage.setItem(getSnapshotKey(projectId), JSON.stringify(payload))
+      } catch {
+        // ignore storage failures
+      }
       setLastUpdatedAt(new Date().toISOString())
     } catch (err) {
       const message =
@@ -121,7 +132,21 @@ export function OperationsStatusPanel({ projectId }: OperationsStatusPanelProps)
           : "Operations status is temporarily unavailable. Please refresh in a few seconds."
       setError(message)
       if (!background) {
-        setData(null)
+        try {
+          const raw = window.sessionStorage.getItem(getSnapshotKey(projectId))
+          if (raw) {
+            const cached = JSON.parse(raw) as OperationsStatusResponse
+            if (cached && typeof cached.projectCount === "number") {
+              setData(cached)
+            } else {
+              setData(null)
+            }
+          } else {
+            setData(null)
+          }
+        } catch {
+          setData(null)
+        }
       }
     } finally {
       isFetchingRef.current = false

@@ -233,23 +233,24 @@ Estimated overall completion: ~95%
 - Release checklist now promotes `verify:mainline` as the default pre-release command at the top of the checklist and clarifies scope of both `verify:mainline` and `verify:core`.
 - CI extended workflow comments and step names now explicitly follow `mainline-first` wording (`Mainline · Workspace/Team/Review/Collaboration`) to match local release verification narrative.
 
+- Operations Status Panel now uses session storage caching for stale-data fallback on initial load failure, consistent with Agent Queue Status and Task Operations Snapshot panels.
+- Operations Health Banner now uses session storage caching for stale-data fallback on initial load failure, preserving last health snapshot when refresh fails.
+- Operations Health Banner refresh button now includes `aria-label="Refresh operations health"` for keyboard/screen-reader accessibility.
+- Agent Queue Status table headers now use `scope="col"` attributes; AT RISK badge includes descriptive `aria-label` per domain.
+- Task Operations Snapshot dispatch history table headers now use `scope="col"` attributes; Show/Hide toggle buttons include `aria-expanded` and descriptive `aria-label`; retry buttons include retryable count in `aria-label`.
+- Agent Queue Console refresh, peek, and claim buttons now include descriptive `aria-label` attributes; domain and agent select dropdowns now include `aria-label` for screen-reader accessibility.
+- Added failure-injection E2E for Operations Status Panel (`e2e/operations-status.spec.ts`): validates stale snapshot fallback when `/api/operations/status` returns 500 on refresh.
+- Added failure-injection E2E for Operations Health Banner (`e2e/operations-health.spec.ts`): validates stale snapshot fallback when `/api/operations/health` returns 500 on refresh, preserving DEGRADED level and issue list.
+- Added degraded-mode E2E coverage (`e2e/operations-status.spec.ts`): validates DEGRADED health banner, degraded queue status notice, and degraded metrics notice rendering on `/operations` page.
+
 ## In Progress
 
 - Final UX consistency pass for task operations panel controls and copy (minor visual polish only).
-- Extend E2E coverage for operations flows with failure-injection scenarios (degraded payload + stale snapshot rendering).
 
 ## Remaining Core Work
 
 ### High Priority
-1. Failure-injection E2E and resilience hardening:
-- Force degraded payloads and timeout failures for operations/queue/metrics flows.
-- Verify stale snapshot fallback and retry UX across Tasks + Operations pages.
-
-2. Final workspace polish:
-- Final terminology/copy audit for queue, reports, and task actions.
-- Accessibility pass for action buttons and status cards (labels, focus order, keyboard flow).
-
-3. Release readiness:
+1. Release readiness:
 - Run `verify:extended` on clean environment and close flaky test branches.
 - Finish release checklist and freeze API contract deltas.
 

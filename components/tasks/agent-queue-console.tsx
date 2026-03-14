@@ -210,6 +210,7 @@ export function AgentQueueConsole({ projectId }: AgentQueueConsoleProps) {
           <h2 className="text-sm font-semibold text-gray-900">Agent Queue Console</h2>
           <button
             type="button"
+            aria-label="Refresh agent list"
             onClick={() => loadAgents(true).catch(() => undefined)}
             disabled={loadingAgents || refreshingAgents || loadingAction}
             className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -264,6 +265,7 @@ export function AgentQueueConsole({ projectId }: AgentQueueConsoleProps) {
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <select
+          aria-label="Queue domain"
           value={domain}
           onChange={(e) => setDomain(e.target.value as QueueDomain)}
           className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
@@ -276,6 +278,7 @@ export function AgentQueueConsole({ projectId }: AgentQueueConsoleProps) {
           ))}
         </select>
         <select
+          aria-label="Agent selection"
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
           className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none md:col-span-2"
@@ -291,6 +294,7 @@ export function AgentQueueConsole({ projectId }: AgentQueueConsoleProps) {
         <div className="flex gap-2">
           <button
             type="button"
+            aria-label="Peek next queue task"
             onClick={() => handlePull(false)}
             disabled={loadingAction || loadingAgents || !projectId}
             className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
@@ -299,6 +303,7 @@ export function AgentQueueConsole({ projectId }: AgentQueueConsoleProps) {
           </button>
           <button
             type="button"
+            aria-label="Claim next queue task"
             onClick={() => handlePull(true)}
             disabled={loadingAction || loadingAgents || !projectId}
             className="flex-1 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"

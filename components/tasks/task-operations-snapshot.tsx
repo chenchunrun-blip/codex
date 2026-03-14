@@ -479,13 +479,13 @@ export function TaskOperationsSnapshot({ projectId }: TaskOperationsSnapshotProp
                 <table className="min-w-full text-xs">
                   <thead>
                     <tr className="border-b border-gray-200 text-left text-gray-500">
-                      <th className="px-2 py-1.5 font-medium">Time</th>
-                      <th className="px-2 py-1.5 font-medium">Mode</th>
-                      <th className="px-2 py-1.5 font-medium">Total</th>
-                      <th className="px-2 py-1.5 font-medium">Success</th>
-                      <th className="px-2 py-1.5 font-medium">Failed</th>
-                      <th className="px-2 py-1.5 font-medium">Batch</th>
-                      <th className="px-2 py-1.5 font-medium">Details</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Time</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Mode</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Total</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Success</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Failed</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Batch</th>
+                      <th scope="col" className="px-2 py-1.5 font-medium">Details</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -508,6 +508,8 @@ export function TaskOperationsSnapshot({ projectId }: TaskOperationsSnapshotProp
                             <td className="px-2 py-1.5">
                               {item.failedTasks.length > 0 ? (
                                 <button
+                                  aria-label={isExpanded ? "Hide failed task details" : "Show failed task details"}
+                                  aria-expanded={isExpanded}
                                   onClick={() => toggleHistoryRow(rowKey)}
                                   className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-200"
                                 >
@@ -539,6 +541,7 @@ export function TaskOperationsSnapshot({ projectId }: TaskOperationsSnapshotProp
                                     Retryable: {retryableCount}
                                   </span>
                                   <button
+                                    aria-label={`Retry ${retryableCount} retryable failed tasks`}
                                     onClick={() =>
                                       retryFailedTasks(
                                         rowKey,

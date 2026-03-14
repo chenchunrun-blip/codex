@@ -22,6 +22,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+const HEALTH_SNAPSHOT_KEY_PREFIX = "operations-health:snapshot:"
+
+function getHealthSnapshotKey(projectId?: string) {
+  return `${HEALTH_SNAPSHOT_KEY_PREFIX}${projectId || "all"}`
+}
+
 export function OperationsHealthBanner({ projectId }: OperationsHealthBannerProps) {
   const [data, setData] = useState<OperationsHealthResponse | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -72,6 +78,11 @@ export function OperationsHealthBanner({ projectId }: OperationsHealthBannerProp
       }
       const payload = (await response.json()) as OperationsHealthResponse
       setData(payload)
+      try {
+        window.sessionStorage.setItem(getHealthSnapshotKey(projectId), JSON.stringify(payload))
+      } catch {
+        // ignore storage failures
+      }
       setLastUpdatedAt(new Date().toISOString())
     } catch (err) {
       const message =
@@ -80,7 +91,21 @@ export function OperationsHealthBanner({ projectId }: OperationsHealthBannerProp
           : "Operations health is temporarily unavailable. Please refresh in a few seconds."
       setError(message)
       if (!background) {
-        setData(null)
+        try {
+          const raw = window.sessionStorage.getItem(getHealthSnapshotKey(projectId))
+          if (raw) {
+            const cached = JSON.parse(raw) as OperationsHealthResponse
+            if (cached && cached.health) {
+              setData(cached)
+            } else {
+              setData(null)
+            }
+          } else {
+            setData(null)
+          }
+        } catch {
+          setData(null)
+        }
       }
     } finally {
       isFetchingRef.current = false
@@ -150,6 +175,7 @@ export function OperationsHealthBanner({ projectId }: OperationsHealthBannerProp
           <span>Issues: {health.issueCount}</span>
           <button
             type="button"
+            aria-label="Refresh operations health"
             onClick={() => fetchData().catch(() => undefined)}
             disabled={loading || refreshing}
             className="rounded border border-current px-2 py-1 text-[11px] hover:bg-white/30 disabled:cursor-not-allowed disabled:opacity-60"
