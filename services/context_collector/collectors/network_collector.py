@@ -16,19 +16,27 @@
 Network context collector for enriching alerts with network information.
 
 This module handles collection of network context including:
-- GeoIP location data
-- IP reputation scores
+- GeoIP location data (MaxMind GeoLite2 or ip-api.com fallback)
+- IP reputation scores (AbuseIPDB)
 - Network anomalies
 - Subnet information
 """
 
+import asyncio
 import ipaddress
+import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+
+import aiohttp
 
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# API configuration
+GEOIP_DB_PATH = os.getenv("GEOIP_DB_PATH", "")  # Path to GeoLite2-City.mmdb
+ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
 
 
 class NetworkCollector:
@@ -165,12 +173,8 @@ class NetworkCollector:
         """
         Query geolocation data for IP address.
 
-        TODO: Replace with real MaxMind GeoIP API call.
-
-        Real implementation should:
-        - Use MaxMind GeoIP2 or GeoLite2 database
-        - Query via: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
-        - Requires: GEOIP_API_KEY or local database file
+        Uses MaxMind GeoLite2 local database if available, otherwise falls back
+        to the free ip-api.com HTTP service.
 
         Args:
             ip: IP address string
@@ -178,7 +182,6 @@ class NetworkCollector:
         Returns:
             Geolocation data dictionary
         """
-        # Mock implementation for POC
         if self._is_internal_ip(ip):
             return {
                 "country": "Internal",
@@ -189,8 +192,53 @@ class NetworkCollector:
                 "timezone": None,
             }
 
-        # For external IPs, return mock data
-        # In production, query MaxMind API or local database
+        # Try MaxMind GeoLite2 local database first
+        if GEOIP_DB_PATH:
+            try:
+                import geoip2.database
+
+                with geoip2.database.Reader(GEOIP_DB_PATH) as reader:
+                    response = reader.city(ip)
+                    return {
+                        "country": response.country.name or "Unknown",
+                        "country_code": response.country.iso_code or "XX",
+                        "city": response.city.name or "Unknown",
+                        "latitude": response.location.latitude,
+                        "longitude": response.location.longitude,
+                        "timezone": response.location.time_zone,
+                    }
+            except ImportError:
+                logger.debug("geoip2 library not installed, falling back to HTTP API")
+            except Exception as e:
+                logger.warning(f"GeoLite2 lookup failed for {ip}: {e}")
+
+        # Fallback: free ip-api.com (no key required, 45 req/min limit)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://ip-api.com/json/{ip}",
+                    params={"fields": "status,country,countryCode,city,lat,lon,timezone,isp,org,as"},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data.get("status") == "success":
+                            return {
+                                "country": data.get("country", "Unknown"),
+                                "country_code": data.get("countryCode", "XX"),
+                                "city": data.get("city", "Unknown"),
+                                "latitude": data.get("lat"),
+                                "longitude": data.get("lon"),
+                                "timezone": data.get("timezone"),
+                                "isp": data.get("isp"),
+                                "org": data.get("org"),
+                                "asn": data.get("as"),
+                            }
+        except asyncio.TimeoutError:
+            logger.warning(f"GeoIP HTTP lookup timed out for {ip}")
+        except Exception as e:
+            logger.warning(f"GeoIP HTTP lookup failed for {ip}: {e}")
+
         return {
             "country": "Unknown",
             "country_code": "XX",
@@ -198,20 +246,11 @@ class NetworkCollector:
             "latitude": None,
             "longitude": None,
             "timezone": None,
-            "_mock": True,  # Indicates this is mock data
-            "_api_required": "MaxMind GeoIP2",
         }
 
     async def _query_reputation(self, ip: str) -> Dict[str, Any]:
         """
-        Query IP reputation from threat intelligence feeds.
-
-        TODO: Replace with real API calls.
-
-        Real implementation should:
-        - Query AbuseIPDB: https://www.abuseipdb.com/api
-        - Query VirusTotal: https://www.virustotal.com/vtapi/v2/ip_addresses/report
-        - Query AlienVault OTX: https://otx.alienvault.com/api/v1/indicators/IPv4/{ip}
+        Query IP reputation from AbuseIPDB.
 
         Args:
             ip: IP address string
@@ -219,10 +258,9 @@ class NetworkCollector:
         Returns:
             Reputation data dictionary
         """
-        # Mock implementation for POC
         if self._is_internal_ip(ip):
             return {
-                "score": 0,  # 0 = trusted, 100 = malicious
+                "score": 0,
                 "confidence": 1.0,
                 "categories": [],
                 "reports": 0,
@@ -230,17 +268,51 @@ class NetworkCollector:
                 "sources": [],
             }
 
-        # For external IPs, return mock data
-        # In production, query real threat intelligence APIs
+        # Query AbuseIPDB if key is available
+        if ABUSEIPDB_API_KEY:
+            try:
+                headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
+                params = {"ipAddress": ip, "maxAgeInDays": "90", "verbose": ""}
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        "https://api.abuseipdb.com/api/v2/check",
+                        params=params,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            report = data.get("data", {})
+                            abuse_score = report.get("abuseConfidenceScore", 0)
+
+                            return {
+                                "score": abuse_score,
+                                "confidence": min(abuse_score / 100.0, 1.0) if abuse_score > 0 else 0.3,
+                                "categories": [str(c) for c in report.get("reports", [])[:5]],
+                                "reports": report.get("totalReports", 0),
+                                "last_reported": report.get("lastReportedAt"),
+                                "sources": ["AbuseIPDB"],
+                                "isp": report.get("isp"),
+                                "country_code": report.get("countryCode"),
+                                "is_whitelisted": report.get("isWhitelisted", False),
+                            }
+                        else:
+                            logger.warning(f"AbuseIPDB returned {response.status} for {ip}")
+
+            except asyncio.TimeoutError:
+                logger.warning(f"AbuseIPDB timeout for {ip}")
+            except Exception as e:
+                logger.warning(f"AbuseIPDB query failed for {ip}: {e}")
+
+        # Fallback: unknown reputation
         return {
-            "score": 50,  # Unknown/neutral
-            "confidence": 0.5,
+            "score": 50,
+            "confidence": 0.3,
             "categories": ["unknown"],
             "reports": 0,
             "last_reported": None,
             "sources": [],
-            "_mock": True,
-            "_apis_required": ["AbuseIPDB", "VirusTotal", "AlienVault OTX"],
         }
 
     def _get_subnet_info(self, ip: str) -> Dict[str, Any]:
@@ -285,13 +357,7 @@ class NetworkCollector:
         """
         Detect network anomalies for IP address.
 
-        TODO: Implement anomaly detection logic.
-
-        Real implementation should:
-        - Check for unusual traffic patterns
-        - Compare against historical data
-        - Query security analytics platform
-        - Check for port scanning, DDoS patterns, etc.
+        Performs heuristic checks based on collected reputation data.
 
         Args:
             ip: IP address string
@@ -299,8 +365,41 @@ class NetworkCollector:
         Returns:
             List of anomaly dictionaries
         """
-        # Mock implementation - no anomalies detected
-        return []
+        anomalies = []
+
+        # Check reputation data for anomalies
+        reputation = await self._query_reputation(ip)
+
+        if reputation.get("score", 0) >= 75:
+            anomalies.append({
+                "type": "high_abuse_score",
+                "severity": "high",
+                "description": f"IP {ip} has abuse confidence score of {reputation['score']}%",
+                "detected_at": datetime.utcnow().isoformat(),
+            })
+
+        if reputation.get("reports", 0) > 50:
+            anomalies.append({
+                "type": "frequently_reported",
+                "severity": "medium",
+                "description": f"IP {ip} reported {reputation['reports']} times in the last 90 days",
+                "detected_at": datetime.utcnow().isoformat(),
+            })
+
+        # Check if IP is in a known bad ASN range (Bogon/unallocated)
+        try:
+            addr = ipaddress.ip_address(ip)
+            if addr.is_reserved or addr.is_multicast:
+                anomalies.append({
+                    "type": "reserved_address",
+                    "severity": "low",
+                    "description": f"IP {ip} is a reserved/multicast address",
+                    "detected_at": datetime.utcnow().isoformat(),
+                })
+        except ValueError:
+            pass
+
+        return anomalies
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
         """Get value from cache if not expired."""

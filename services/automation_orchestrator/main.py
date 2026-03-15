@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -266,15 +267,24 @@ class ActionExecutor:
     """Base class for action executors."""
 
     async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an action."""
-        raise NotImplementedError
+        """Execute an action. Subclasses must override this method."""
+        return {
+            "status": "failed",
+            "error": f"No executor implementation for {action.action_type}",
+        }
 
 
 class SSHCommandExecutor(ActionExecutor):
-    """Execute SSH commands on remote hosts."""
+    """Execute SSH commands on remote hosts via asyncssh."""
+
+    def __init__(self):
+        self._ssh_username = os.getenv("SSH_USERNAME", "root")
+        self._ssh_key_path = os.getenv("SSH_KEY_PATH", os.path.expanduser("~/.ssh/id_rsa"))
+        self._ssh_port = int(os.getenv("SSH_PORT", "22"))
+        self._known_hosts_path = os.getenv("SSH_KNOWN_HOSTS", None)
 
     async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute SSH command (mock - replace with asyncssh in production)."""
+        """Execute SSH command on remote host."""
         try:
             command_template = action.parameters.get("command_template", "")
             target_host = action.parameters.get("target_host", "")
@@ -282,17 +292,61 @@ class SSHCommandExecutor(ActionExecutor):
             command = command_template.format(**context) if command_template else ""
             target = target_host.format(**context) if target_host else ""
 
+            if not command or not target:
+                return {"status": "failed", "error": "Missing command or target host"}
+
             logger.info(f"Executing SSH command on {target}: {command}")
 
-            # TODO: Implement actual SSH execution with asyncssh
-            await asyncio.sleep(0.5)
+            username = action.parameters.get("username", self._ssh_username)
+            port = action.parameters.get("port", self._ssh_port)
 
-            return {
-                "status": "success",
-                "output": f"Command executed successfully on {target}",
-                "exit_code": 0,
-            }
+            try:
+                import asyncssh
 
+                connect_kwargs: Dict[str, Any] = {
+                    "host": target,
+                    "port": port,
+                    "username": username,
+                }
+
+                # Key-based auth
+                key_path = action.parameters.get("ssh_key_path", self._ssh_key_path)
+                if key_path and os.path.exists(key_path):
+                    connect_kwargs["client_keys"] = [key_path]
+
+                # Known hosts
+                if self._known_hosts_path:
+                    connect_kwargs["known_hosts"] = self._known_hosts_path
+                else:
+                    connect_kwargs["known_hosts"] = None
+
+                async with asyncssh.connect(**connect_kwargs) as conn:
+                    result = await asyncio.wait_for(
+                        conn.run(command, check=False),
+                        timeout=action.timeout_seconds or 60,
+                    )
+
+                    return {
+                        "status": "success" if result.exit_status == 0 else "failed",
+                        "output": result.stdout.strip() if result.stdout else "",
+                        "stderr": result.stderr.strip() if result.stderr else "",
+                        "exit_code": result.exit_status,
+                        "target": target,
+                    }
+
+            except ImportError:
+                logger.warning("asyncssh not installed, using simulation mode")
+                await asyncio.sleep(0.5)
+                return {
+                    "status": "success",
+                    "output": f"[simulated] Command executed on {target}",
+                    "exit_code": 0,
+                    "_simulated": True,
+                }
+
+        except asyncio.TimeoutError:
+            logger.error(f"SSH command timed out on {target}")
+            return {"status": "failed", "error": f"SSH command timed out on {target}"}
         except Exception as e:
             logger.error(f"SSH command execution failed: {e}", exc_info=True)
             return {"status": "failed", "error": str(e)}

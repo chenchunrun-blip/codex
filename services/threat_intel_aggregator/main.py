@@ -73,15 +73,15 @@ class ThreatIntelSource:
 
     async def query_ip(self, ip: str) -> Optional[Dict[str, Any]]:
         """Query threat intelligence for an IP address."""
-        raise NotImplementedError
+        return None
 
     async def query_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
         """Query threat intelligence for a file hash."""
-        raise NotImplementedError
+        return None
 
     async def query_url(self, url: str) -> Optional[Dict[str, Any]]:
         """Query threat intelligence for a URL."""
-        raise NotImplementedError
+        return None
 
 
 class VirusTotalSource(ThreatIntelSource):
@@ -417,6 +417,165 @@ class InternalIOCSource(ThreatIntelSource):
             return None
 
 
+class AbuseIPDBSource(ThreatIntelSource):
+    """AbuseIPDB threat intelligence source for IP reputation."""
+
+    def __init__(self, api_key: str = None):
+        super().__init__("AbuseIPDB")
+        self.api_key = api_key
+        self.base_url = "https://api.abuseipdb.com/api/v2"
+        self.enabled = bool(api_key and api_key != "your_abuseipdb_key")
+
+    async def query_ip(self, ip: str) -> Optional[Dict[str, Any]]:
+        """Query AbuseIPDB for IP reputation."""
+        if not self.enabled:
+            return None
+
+        try:
+            headers = {"Key": self.api_key, "Accept": "application/json"}
+            params = {"ipAddress": ip, "maxAgeInDays": "90", "verbose": ""}
+            url = f"{self.base_url}/check"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_ip_response(data)
+                    else:
+                        logger.warning(f"AbuseIPDB API error: {response.status}")
+                        return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"AbuseIPDB timeout for IP {ip}")
+            return None
+        except Exception as e:
+            logger.error(f"AbuseIPDB query failed for IP {ip}: {e}")
+            return None
+
+    def _parse_ip_response(self, data: dict) -> Dict[str, Any]:
+        """Parse AbuseIPDB response."""
+        report = data.get("data", {})
+        abuse_score = report.get("abuseConfidenceScore", 0)
+        return {
+            "source": "AbuseIPDB",
+            "detected": abuse_score > 25,
+            "abuse_confidence_score": abuse_score,
+            "total_reports": report.get("totalReports", 0),
+            "country_code": report.get("countryCode"),
+            "isp": report.get("isp"),
+            "domain": report.get("domain"),
+            "is_whitelisted": report.get("isWhitelisted", False),
+            "last_reported_at": report.get("lastReportedAt"),
+        }
+
+
+class AlienVaultOTXSource(ThreatIntelSource):
+    """AlienVault OTX threat intelligence source."""
+
+    def __init__(self, api_key: str = None):
+        super().__init__("AlienVault OTX")
+        self.api_key = api_key
+        self.base_url = "https://otx.alienvault.com/api/v1"
+        self.enabled = bool(api_key and api_key != "your_otx_key")
+
+    def _get_headers(self) -> Dict[str, str]:
+        return {"X-OTX-API-KEY": self.api_key, "Accept": "application/json"}
+
+    async def query_ip(self, ip: str) -> Optional[Dict[str, Any]]:
+        """Query AlienVault OTX for IP reputation."""
+        if not self.enabled:
+            return None
+
+        try:
+            url = f"{self.base_url}/indicators/IPv4/{ip}/general"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._get_headers(), timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_ip_response(data)
+                    else:
+                        logger.warning(f"OTX API error: {response.status}")
+                        return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"OTX timeout for IP {ip}")
+            return None
+        except Exception as e:
+            logger.error(f"OTX query failed for IP {ip}: {e}")
+            return None
+
+    async def query_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
+        """Query AlienVault OTX for file hash."""
+        if not self.enabled:
+            return None
+
+        try:
+            hash_type = "SHA256" if len(file_hash) == 64 else "MD5" if len(file_hash) == 32 else "SHA1"
+            url = f"{self.base_url}/indicators/file/{file_hash}/general"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._get_headers(), timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_hash_response(data, hash_type)
+                    else:
+                        return None
+
+        except Exception as e:
+            logger.error(f"OTX query failed for hash {file_hash}: {e}")
+            return None
+
+    async def query_url(self, url: str) -> Optional[Dict[str, Any]]:
+        """Query AlienVault OTX for URL/domain."""
+        if not self.enabled:
+            return None
+
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            domain = parsed.netloc or url
+
+            api_url = f"{self.base_url}/indicators/domain/{domain}/general"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=self._get_headers(), timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_domain_response(data)
+                    else:
+                        return None
+
+        except Exception as e:
+            logger.error(f"OTX query failed for URL {url}: {e}")
+            return None
+
+    def _parse_ip_response(self, data: dict) -> Dict[str, Any]:
+        pulse_count = data.get("pulse_info", {}).get("count", 0)
+        return {
+            "source": "AlienVault OTX",
+            "detected": pulse_count > 0,
+            "pulse_count": pulse_count,
+            "reputation": data.get("reputation", 0),
+            "country_code": data.get("country_code"),
+            "asn": data.get("asn"),
+        }
+
+    def _parse_hash_response(self, data: dict, hash_type: str) -> Dict[str, Any]:
+        pulse_count = data.get("pulse_info", {}).get("count", 0)
+        return {
+            "source": "AlienVault OTX",
+            "detected": pulse_count > 0,
+            "pulse_count": pulse_count,
+            "hash_type": hash_type,
+        }
+
+    def _parse_domain_response(self, data: dict) -> Dict[str, Any]:
+        pulse_count = data.get("pulse_info", {}).get("count", 0)
+        return {
+            "source": "AlienVault OTX",
+            "detected": pulse_count > 0,
+            "pulse_count": pulse_count,
+        }
+
+
 class CustomThreatFeed(ThreatIntelSource):
     """Custom threat intelligence feed (internal blocklist)."""
 
@@ -481,10 +640,19 @@ def init_threat_sources():
     # Abuse.ch (free public API)
     threat_sources.append(AbuseCHSource())
 
+    # AbuseIPDB (requires API key)
+    abuseipdb_key = os.getenv("ABUSEIPDB_API_KEY", "your_abuseipdb_key")
+    threat_sources.append(AbuseIPDBSource(abuseipdb_key))
+
+    # AlienVault OTX (requires API key)
+    otx_key = os.getenv("OTX_API_KEY", "your_otx_key")
+    threat_sources.append(AlienVaultOTXSource(otx_key))
+
     # Custom internal feed
     threat_sources.append(CustomThreatFeed())
 
-    logger.info(f"Initialized {len(threat_sources)} threat intel sources")
+    enabled = [s.name for s in threat_sources if s.enabled]
+    logger.info(f"Initialized {len(threat_sources)} threat intel sources ({len(enabled)} enabled: {enabled})")
 
 
 # =============================================================================

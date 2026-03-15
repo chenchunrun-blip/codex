@@ -15,15 +15,20 @@
 """Notification Service - Sends notifications via multiple channels."""
 
 import asyncio
+import os
+import smtplib
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from shared.database import DatabaseManager, get_database_manager
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
@@ -31,6 +36,23 @@ from shared.utils import Config, get_logger
 
 logger = get_logger(__name__)
 config = Config()
+
+# SMTP configuration from environment
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "security-triage@example.com")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+
+# Twilio SMS configuration
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
+
+# Escalation configuration
+ESCALATION_DELAY_SECONDS = int(os.getenv("ESCALATION_DELAY_SECONDS", "300"))  # 5 min
+MAX_ESCALATION_LEVEL = int(os.getenv("MAX_ESCALATION_LEVEL", "3"))
 
 db_manager: DatabaseManager = None
 consumer: MessageConsumer = None
@@ -114,23 +136,53 @@ app.add_middleware(
 async def send_email(
     recipient: str, subject: str, body: str, html_body: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Send email notification."""
+    """Send email notification via SMTP."""
     try:
-        # TODO: Integrate with email service (SendGrid, AWS SES, SMTP)
-        logger.info(f"Sending email to {recipient}: {subject}")
+        if not SMTP_HOST or not SMTP_USERNAME:
+            logger.warning("SMTP not configured, simulating email send")
+            await asyncio.sleep(0.1)
+            return {
+                "success": True,
+                "channel": "email",
+                "recipient": recipient,
+                "message_id": f"email-{uuid.uuid4()}",
+                "_simulated": True,
+            }
 
-        # Mock implementation
-        await asyncio.sleep(0.5)
+        msg = MIMEMultipart("alternative")
+        msg["From"] = SMTP_FROM_EMAIL
+        msg["To"] = recipient
+        msg["Subject"] = subject
+
+        msg.attach(MIMEText(body, "plain"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html"))
+
+        # Run SMTP in a thread to avoid blocking the event loop
+        def _send():
+            if SMTP_USE_TLS:
+                server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+                server.starttls()
+            else:
+                server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+
+        await asyncio.get_event_loop().run_in_executor(None, _send)
+
+        message_id = f"email-{uuid.uuid4()}"
+        logger.info(f"Email sent to {recipient}: {subject}", extra={"message_id": message_id})
 
         return {
             "success": True,
             "channel": "email",
             "recipient": recipient,
-            "message_id": f"email-{uuid.uuid4()}",
+            "message_id": message_id,
         }
 
     except Exception as e:
-        logger.error(f"Failed to send email: {e}", exc_info=True)
+        logger.error(f"Failed to send email to {recipient}: {e}", exc_info=True)
         return {"success": False, "channel": "email", "error": str(e)}
 
 
@@ -289,6 +341,158 @@ async def send_pagerduty(
         return {"success": False, "channel": "pagerduty", "error": str(e)}
 
 
+async def send_sms(recipient: str, message: str) -> Dict[str, Any]:
+    """Send SMS notification via Twilio API."""
+    try:
+        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+            logger.warning("Twilio not configured, simulating SMS send")
+            await asyncio.sleep(0.1)
+            return {"success": True, "channel": "sms", "recipient": recipient, "_simulated": True}
+
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                data={"To": recipient, "From": TWILIO_FROM_NUMBER, "Body": message},
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            resp_data = response.json()
+
+        logger.info(f"SMS sent to {recipient}", extra={"sid": resp_data.get("sid")})
+        return {
+            "success": True,
+            "channel": "sms",
+            "recipient": recipient,
+            "sid": resp_data.get("sid"),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to send SMS to {recipient}: {e}", exc_info=True)
+        return {"success": False, "channel": "sms", "error": str(e)}
+
+
+async def send_in_app(
+    user_id: str,
+    subject: str,
+    message: str,
+    priority: "NotificationPriority" = None,
+) -> Dict[str, Any]:
+    """Store in-app notification in the database."""
+    try:
+        notification_id = str(uuid.uuid4())
+
+        if db_manager:
+            async with db_manager.get_session() as session:
+                await session.execute(
+                    text("""
+                        INSERT INTO notifications (id, user_id, title, message, priority, is_read, created_at)
+                        VALUES (:id, :user_id, :title, :message, :priority, FALSE, NOW())
+                    """),
+                    {
+                        "id": notification_id,
+                        "user_id": user_id,
+                        "title": subject,
+                        "message": message,
+                        "priority": priority.value if priority else "normal",
+                    },
+                )
+                await session.commit()
+
+        logger.info(f"In-app notification stored for {user_id}", extra={"id": notification_id})
+        return {
+            "success": True,
+            "channel": "in_app",
+            "notification_id": notification_id,
+            "user_id": user_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to store in-app notification: {e}", exc_info=True)
+        return {"success": False, "channel": "in_app", "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Escalation logic
+# ---------------------------------------------------------------------------
+
+# Track pending acknowledgements: notification_id -> {details}
+_pending_acks: Dict[str, Dict[str, Any]] = {}
+
+
+async def send_with_escalation(
+    channels: List[NotificationChannel],
+    recipients_by_level: List[List[str]],
+    subject: str,
+    message: str,
+    priority: "NotificationPriority" = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Send notification with escalation: if no acknowledgement within the delay,
+    escalate to the next level of recipients.
+
+    Args:
+        channels: Channels to use at each level
+        recipients_by_level: List of recipient lists per escalation level
+        subject: Notification subject
+        message: Notification message
+        priority: Priority level
+        data: Additional data
+
+    Returns:
+        Escalation results
+    """
+    escalation_id = str(uuid.uuid4())
+    results = []
+
+    for level, recipients in enumerate(recipients_by_level[:MAX_ESCALATION_LEVEL]):
+        level_results = []
+        for channel in channels:
+            for recipient in recipients:
+                result = await send_notification(
+                    channel, recipient, f"[ESC-L{level}] {subject}", message, priority, data
+                )
+                level_results.append(result)
+
+        results.append({"level": level, "results": level_results})
+
+        # Check if any succeeded at this level
+        any_success = any(r.get("success") for r in level_results)
+        if not any_success:
+            logger.warning(f"Escalation level {level} failed, escalating immediately")
+            continue
+
+        # Wait for acknowledgement before escalating
+        if level < len(recipients_by_level) - 1:
+            ack_key = f"esc:{escalation_id}:level:{level}"
+            _pending_acks[ack_key] = {
+                "escalation_id": escalation_id,
+                "level": level,
+                "created_at": datetime.utcnow(),
+            }
+
+            await asyncio.sleep(ESCALATION_DELAY_SECONDS)
+
+            if ack_key in _pending_acks:
+                # Not acknowledged, escalate
+                del _pending_acks[ack_key]
+                logger.info(f"Escalating from level {level} to {level + 1}")
+            else:
+                # Acknowledged, stop escalation
+                logger.info(f"Notification acknowledged at level {level}, stopping escalation")
+                break
+
+    return {
+        "success": True,
+        "escalation_id": escalation_id,
+        "levels_notified": len(results),
+        "results": results,
+    }
+
+
 async def send_notification(
     channel: NotificationChannel,
     recipient: str,
@@ -309,14 +513,10 @@ async def send_notification(
             return await send_webhook(recipient, data or {"message": message, "subject": subject})
 
         elif channel == NotificationChannel.SMS:
-            # TODO: Implement SMS (Twilio, AWS SNS)
-            logger.info(f"SMS notification to {recipient}: {message}")
-            return {"success": True, "channel": "sms"}
+            return await send_sms(recipient, message)
 
         elif channel == NotificationChannel.IN_APP:
-            # TODO: Store in-app notification in database
-            logger.info(f"In-app notification for {recipient}: {message}")
-            return {"success": True, "channel": "in_app"}
+            return await send_in_app(recipient, subject, message, priority)
 
         elif channel == NotificationChannel.DINGTALK:
             at_mobiles = data.get("at_mobiles") if data else None
@@ -453,6 +653,52 @@ async def broadcast_notification(
     except Exception as e:
         logger.error(f"Failed to broadcast notification: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to broadcast notification: {str(e)}")
+
+
+@app.post("/api/v1/notifications/escalate", response_model=Dict[str, Any])
+async def escalate_notification_api(
+    channels: List[NotificationChannel],
+    recipients_by_level: List[List[str]],
+    subject: str,
+    message: str,
+    priority: NotificationPriority = NotificationPriority.URGENT,
+    data: Optional[Dict[str, Any]] = None,
+    background_tasks: BackgroundTasks = None,
+):
+    """Send notification with escalation across multiple levels."""
+    try:
+        if background_tasks:
+            background_tasks.add_task(
+                send_with_escalation, channels, recipients_by_level, subject, message, priority, data
+            )
+            return {
+                "success": True,
+                "data": {"message": "Escalation started in background"},
+                "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+            }
+
+        result = await send_with_escalation(
+            channels, recipients_by_level, subject, message, priority, data
+        )
+        return {
+            "success": True,
+            "data": result,
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+
+    except Exception as e:
+        logger.error(f"Escalation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/notifications/acknowledge/{escalation_id}")
+async def acknowledge_notification(escalation_id: str, level: int = 0):
+    """Acknowledge an escalation notification to prevent further escalation."""
+    ack_key = f"esc:{escalation_id}:level:{level}"
+    if ack_key in _pending_acks:
+        del _pending_acks[ack_key]
+        return {"success": True, "message": f"Escalation {escalation_id} level {level} acknowledged"}
+    return {"success": False, "message": "Escalation not found or already resolved"}
 
 
 @app.get("/health")
