@@ -17,6 +17,7 @@
 from .exceptions import (
     AuthenticationError,
     AuthorizationError,
+    AutomationError,
     ConflictError,
     DatabaseError,
     LLMError,
@@ -26,6 +27,7 @@ from .exceptions import (
     SecurityTriageError,
     ServiceUnavailableError,
     ValidationError,
+    WorkflowError,
 )
 
 __all__ = [
@@ -40,4 +42,6 @@ __all__ = [
     "DatabaseError",
     "MessageQueueError",
     "LLMError",
+    "WorkflowError",
+    "AutomationError",
 ]

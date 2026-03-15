@@ -216,3 +216,43 @@ class LLMError(SecurityTriageError):
             details["provider"] = provider
 
         super().__init__(message, code="LLM_ERROR", details=details)
+
+
+class WorkflowError(SecurityTriageError):
+    """Raised when a workflow operation fails."""
+
+    def __init__(
+        self,
+        message: str,
+        workflow_id: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
+    ):
+        if details is None:
+            details = {}
+        if workflow_id:
+            details["workflow_id"] = workflow_id
+        if execution_id:
+            details["execution_id"] = execution_id
+
+        super().__init__(message, code="WORKFLOW_ERROR", details=details)
+
+
+class AutomationError(SecurityTriageError):
+    """Raised when an automation/playbook operation fails."""
+
+    def __init__(
+        self,
+        message: str,
+        playbook_id: Optional[str] = None,
+        action_id: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
+    ):
+        if details is None:
+            details = {}
+        if playbook_id:
+            details["playbook_id"] = playbook_id
+        if action_id:
+            details["action_id"] = action_id
+
+        super().__init__(message, code="AUTOMATION_ERROR", details=details)
