@@ -1,4 +1,5 @@
-"""Unit tests for Workflow Engine service - execution, branching, tasks, correlation."""
+"""Unit tests for Workflow Engine service - execution, branching, tasks, correlation,
+audit logging, SLA management, smart assignment, approval workflow, and CRUD APIs."""
 
 import asyncio
 import pytest
@@ -162,7 +163,7 @@ class TestAutomationTrigger:
 
     @pytest.mark.asyncio
     async def test_trigger_automation_for_malware(self):
-        from services.workflow_engine.main import trigger_automation
+        from services.workflow_engine.main import trigger_automation, pending_approvals
         import services.workflow_engine.main as wf_module
 
         mock_pub = AsyncMock()
@@ -170,6 +171,7 @@ class TestAutomationTrigger:
         wf_module.publisher = mock_pub
 
         try:
+            # Use LOW risk to bypass approval (CRITICAL would require approval)
             execution = WorkflowExecution(
                 execution_id="exec-auto-001",
                 workflow_id="alert-processing",
@@ -180,7 +182,7 @@ class TestAutomationTrigger:
                         "alert_type": "malware",
                         "source_ip": "1.2.3.4",
                     },
-                    "risk_level": "CRITICAL",
+                    "risk_level": "LOW",
                 },
             )
 
@@ -1007,3 +1009,612 @@ class TestErrorClasses:
         assert err.code == "AUTOMATION_ERROR"
         assert err.details["playbook_id"] == "pb-001"
         assert err.details["action_id"] == "act-001"
+
+
+# ---------------------------------------------------------------------------
+# Helper to reset analyst pool state between tests
+# ---------------------------------------------------------------------------
+
+def _reset_analyst_pool():
+    """Reset analyst pool to default state for test isolation."""
+    from services.workflow_engine.main import ANALYST_POOL
+    for analyst in ANALYST_POOL:
+        analyst["active_tasks"] = 0
+        analyst["available"] = True
+
+
+# ---------------------------------------------------------------------------
+# SLA Management
+# ---------------------------------------------------------------------------
+
+class TestSLAManagement:
+    """Test SLA deadline calculation and breach detection."""
+
+    def test_calculate_sla_deadline_critical(self):
+        from services.workflow_engine.main import calculate_sla_deadline
+
+        now = datetime(2026, 3, 15, 12, 0, 0)
+        deadlines = calculate_sla_deadline("critical", now)
+
+        assert deadlines["response_deadline"] == now + timedelta(minutes=15)
+        assert deadlines["resolve_deadline"] == now + timedelta(minutes=60)
+
+    def test_calculate_sla_deadline_low(self):
+        from services.workflow_engine.main import calculate_sla_deadline
+
+        now = datetime(2026, 3, 15, 12, 0, 0)
+        deadlines = calculate_sla_deadline("low", now)
+
+        assert deadlines["response_deadline"] == now + timedelta(minutes=120)
+        assert deadlines["resolve_deadline"] == now + timedelta(minutes=1440)
+
+    def test_calculate_sla_deadline_unknown_falls_back_to_medium(self):
+        from services.workflow_engine.main import calculate_sla_deadline
+
+        now = datetime(2026, 3, 15, 12, 0, 0)
+        deadlines = calculate_sla_deadline("unknown_priority", now)
+
+        # Should fall back to medium
+        assert deadlines["response_deadline"] == now + timedelta(minutes=60)
+        assert deadlines["resolve_deadline"] == now + timedelta(minutes=480)
+
+    @pytest.mark.asyncio
+    async def test_check_sla_breaches_detects_overdue(self):
+        from services.workflow_engine.main import check_sla_breaches, pending_tasks
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+
+        # Create a task that was created 2 hours ago with critical priority
+        # (critical response SLA = 15 min, so this is breached)
+        old_time = datetime.utcnow() - timedelta(hours=2)
+        task = HumanTask(
+            task_id="task-sla-001",
+            execution_id="exec-sla-001",
+            task_type="review",
+            title="Overdue task",
+            description="This task is overdue",
+            assigned_to="analyst-1",
+            status=TaskStatus.ASSIGNED,
+            priority=TaskPriority.CRITICAL,
+            created_at=old_time,
+        )
+        pending_tasks["task-sla-001"] = task
+
+        try:
+            _reset_analyst_pool()
+            breaches = await check_sla_breaches()
+            assert len(breaches) >= 1
+            breach = next(b for b in breaches if b["task_id"] == "task-sla-001")
+            assert breach["breach_type"] in ("response", "resolve")
+            assert breach["overdue_minutes"] > 0
+        finally:
+            pending_tasks.pop("task-sla-001", None)
+            wf_module.publisher = original_pub
+
+    @pytest.mark.asyncio
+    async def test_check_sla_breaches_no_breach_for_recent_task(self):
+        from services.workflow_engine.main import check_sla_breaches, pending_tasks
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+
+        # Create a task just now with low priority (SLA = 120 min response)
+        task = HumanTask(
+            task_id="task-sla-002",
+            execution_id="exec-sla-002",
+            task_type="review",
+            title="Fresh task",
+            description="Just created",
+            assigned_to="analyst-1",
+            status=TaskStatus.ASSIGNED,
+            priority=TaskPriority.LOW,
+        )
+        pending_tasks["task-sla-002"] = task
+
+        try:
+            breaches = await check_sla_breaches()
+            sla_breach = [b for b in breaches if b["task_id"] == "task-sla-002"]
+            assert len(sla_breach) == 0
+        finally:
+            pending_tasks.pop("task-sla-002", None)
+            wf_module.publisher = original_pub
+
+    def test_sla_config_structure(self):
+        from services.workflow_engine.main import SLA_CONFIG
+
+        for priority in ("critical", "high", "medium", "low"):
+            assert priority in SLA_CONFIG
+            assert "response_minutes" in SLA_CONFIG[priority]
+            assert "resolve_minutes" in SLA_CONFIG[priority]
+
+
+# ---------------------------------------------------------------------------
+# Smart Task Assignment
+# ---------------------------------------------------------------------------
+
+class TestSmartTaskAssignment:
+    """Test skill-based and load-balanced task assignment."""
+
+    def test_find_best_assignee_skill_match(self):
+        from services.workflow_engine.main import _find_best_assignee
+        _reset_analyst_pool()
+
+        # analyst-1 and analyst-3 have malware skill
+        assignee = _find_best_assignee("high", "malware")
+        assert assignee in ("analyst-1", "analyst-3")
+
+    def test_find_best_assignee_load_balance(self):
+        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        _reset_analyst_pool()
+
+        # Give analyst-1 some load
+        ANALYST_POOL[0]["active_tasks"] = 3
+
+        # Both analyst-1 and analyst-3 have malware skill, but analyst-3 has 0 tasks
+        assignee = _find_best_assignee("medium", "malware")
+        assert assignee == "analyst-3"
+
+        _reset_analyst_pool()
+
+    def test_find_best_assignee_exclude(self):
+        from services.workflow_engine.main import _find_best_assignee
+        _reset_analyst_pool()
+
+        # Exclude analyst-1, should pick analyst-3 for malware
+        assignee = _find_best_assignee("high", "malware", exclude="analyst-1")
+        assert assignee == "analyst-3"
+        _reset_analyst_pool()
+
+    def test_find_best_assignee_no_candidates_returns_fallback(self):
+        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        _reset_analyst_pool()
+
+        # Make all analysts unavailable
+        for a in ANALYST_POOL:
+            a["available"] = False
+
+        assignee = _find_best_assignee("medium", "malware")
+        assert assignee == "security-team"
+
+        _reset_analyst_pool()
+
+    def test_find_best_assignee_increments_active_tasks(self):
+        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        _reset_analyst_pool()
+
+        assignee = _find_best_assignee("medium", "brute_force")
+        # analyst-2 has brute_force skill
+        assert assignee == "analyst-2"
+
+        analyst = next(a for a in ANALYST_POOL if a["id"] == "analyst-2")
+        assert analyst["active_tasks"] == 1
+
+        _reset_analyst_pool()
+
+    def test_release_analyst(self):
+        from services.workflow_engine.main import _release_analyst, ANALYST_POOL
+        _reset_analyst_pool()
+
+        ANALYST_POOL[0]["active_tasks"] = 2
+        _release_analyst("analyst-1")
+        assert ANALYST_POOL[0]["active_tasks"] == 1
+
+        _reset_analyst_pool()
+
+    def test_release_analyst_does_not_go_negative(self):
+        from services.workflow_engine.main import _release_analyst, ANALYST_POOL
+        _reset_analyst_pool()
+
+        _release_analyst("analyst-1")  # already at 0
+        assert ANALYST_POOL[0]["active_tasks"] == 0
+
+    @pytest.mark.asyncio
+    async def test_human_task_uses_smart_assignment(self):
+        """Human task step with 'security-team' assignee should use smart assignment."""
+        from services.workflow_engine.main import execute_workflow_step, pending_tasks
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+        _reset_analyst_pool()
+
+        try:
+            execution = WorkflowExecution(
+                execution_id="exec-smart-001",
+                workflow_id="alert-processing",
+                status=WorkflowStatus.RUNNING,
+                input={
+                    "alert_id": "SMART-001",
+                    "alert_type": "malware",
+                },
+            )
+
+            step = {
+                "name": "review",
+                "type": "human_task",
+                "description": "Review alert",
+                "assignee": "security-team",  # triggers smart assignment
+                "priority": "high",
+            }
+            result = await execute_workflow_step(execution, step)
+
+            assert result["status"] == "pending"
+            # Should be assigned to an analyst, not security-team
+            assert result["assigned_to"] in ("analyst-1", "analyst-3")
+
+            # Verify SLA data is attached
+            task = pending_tasks[result["task_id"]]
+            assert "sla" in task.input_data
+            assert "response_deadline" in task.input_data["sla"]
+
+            pending_tasks.pop(result["task_id"], None)
+        finally:
+            wf_module.publisher = original_pub
+            _reset_analyst_pool()
+
+
+# ---------------------------------------------------------------------------
+# Approval Workflow
+# ---------------------------------------------------------------------------
+
+class TestApprovalWorkflow:
+    """Test approval workflow for high-risk automation."""
+
+    def test_requires_approval_critical_malware(self):
+        from services.workflow_engine.main import requires_approval
+
+        assert requires_approval("malware-response", "CRITICAL") is True
+        assert requires_approval("malware-response", "HIGH") is True
+
+    def test_requires_approval_low_risk_no(self):
+        from services.workflow_engine.main import requires_approval
+
+        assert requires_approval("malware-response", "LOW") is False
+        assert requires_approval("malware-response", "MEDIUM") is False
+
+    def test_requires_approval_unknown_playbook_no(self):
+        from services.workflow_engine.main import requires_approval
+
+        assert requires_approval("phishing-response", "CRITICAL") is False
+
+    @pytest.mark.asyncio
+    async def test_request_approval_creates_entry(self):
+        from services.workflow_engine.main import (
+            request_approval, pending_approvals,
+        )
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+
+        try:
+            execution = WorkflowExecution(
+                execution_id="exec-approval-001",
+                workflow_id="alert-processing",
+                status=WorkflowStatus.RUNNING,
+                input={
+                    "alert": {"alert_id": "APR-001", "alert_type": "malware"},
+                    "risk_level": "CRITICAL",
+                },
+            )
+
+            step = {"type": "automation", "playbook_selector": "by_alert_type"}
+            approval = await request_approval(execution, "malware-response", step)
+
+            assert approval["status"] == "pending"
+            assert approval["playbook_id"] == "malware-response"
+            assert approval["approval_id"] in pending_approvals
+
+            # Cleanup
+            pending_approvals.pop(approval["approval_id"], None)
+        finally:
+            wf_module.publisher = original_pub
+
+    def test_process_approval_approve(self):
+        from services.workflow_engine.main import (
+            process_approval, pending_approvals,
+        )
+
+        pending_approvals["test-apr-001"] = {
+            "approval_id": "test-apr-001",
+            "playbook_id": "malware-response",
+            "status": "pending",
+            "execution_id": "exec-001",
+        }
+
+        try:
+            result = process_approval("test-apr-001", True, "admin", "Looks safe")
+            assert result["status"] == "approved"
+            assert result["approved_by"] == "admin"
+            assert result["reason"] == "Looks safe"
+        finally:
+            pending_approvals.pop("test-apr-001", None)
+
+    def test_process_approval_reject(self):
+        from services.workflow_engine.main import (
+            process_approval, pending_approvals,
+        )
+
+        pending_approvals["test-apr-002"] = {
+            "approval_id": "test-apr-002",
+            "playbook_id": "malware-response",
+            "status": "pending",
+            "execution_id": "exec-002",
+        }
+
+        try:
+            result = process_approval("test-apr-002", False, "admin", "Too risky")
+            assert result["status"] == "rejected"
+        finally:
+            pending_approvals.pop("test-apr-002", None)
+
+    def test_process_approval_not_found_raises(self):
+        from services.workflow_engine.main import process_approval
+        from shared.errors import WorkflowError
+
+        with pytest.raises(WorkflowError, match="not found"):
+            process_approval("nonexistent", True, "admin")
+
+    def test_process_approval_already_processed_raises(self):
+        from services.workflow_engine.main import (
+            process_approval, pending_approvals,
+        )
+        from shared.errors import WorkflowError
+
+        pending_approvals["test-apr-003"] = {
+            "approval_id": "test-apr-003",
+            "playbook_id": "malware-response",
+            "status": "approved",
+            "execution_id": "exec-003",
+        }
+
+        try:
+            with pytest.raises(WorkflowError, match="already processed"):
+                process_approval("test-apr-003", True, "admin")
+        finally:
+            pending_approvals.pop("test-apr-003", None)
+
+    @pytest.mark.asyncio
+    async def test_trigger_automation_requires_approval_for_critical(self):
+        """High-risk automation with CRITICAL risk should return awaiting_approval."""
+        from services.workflow_engine.main import (
+            trigger_automation, pending_approvals,
+        )
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+
+        try:
+            execution = WorkflowExecution(
+                execution_id="exec-apr-auto-001",
+                workflow_id="alert-processing",
+                status=WorkflowStatus.RUNNING,
+                input={
+                    "alert": {"alert_id": "APR-AUTO-001", "alert_type": "malware"},
+                    "risk_level": "CRITICAL",
+                },
+            )
+
+            step = {"type": "automation", "playbook_selector": "by_alert_type"}
+            result = await trigger_automation(execution, step)
+
+            assert result["status"] == "awaiting_approval"
+            assert result["playbook_id"] == "malware-response"
+            assert result["approval_id"] in pending_approvals
+
+            # Cleanup
+            pending_approvals.pop(result["approval_id"], None)
+        finally:
+            wf_module.publisher = original_pub
+
+    @pytest.mark.asyncio
+    async def test_trigger_automation_no_approval_for_low_risk(self):
+        """Low-risk automation should trigger directly without approval."""
+        from services.workflow_engine.main import trigger_automation
+        import services.workflow_engine.main as wf_module
+
+        original_pub = wf_module.publisher
+        wf_module.publisher = AsyncMock()
+
+        try:
+            execution = WorkflowExecution(
+                execution_id="exec-apr-auto-002",
+                workflow_id="alert-processing",
+                status=WorkflowStatus.RUNNING,
+                input={
+                    "alert": {"alert_id": "APR-AUTO-002", "alert_type": "malware"},
+                    "risk_level": "LOW",
+                },
+            )
+
+            step = {"type": "automation", "playbook_selector": "by_alert_type"}
+            result = await trigger_automation(execution, step)
+
+            assert result["status"] == "triggered"
+            assert result["playbook_id"] == "malware-response"
+        finally:
+            wf_module.publisher = original_pub
+
+
+# ---------------------------------------------------------------------------
+# Audit Logging
+# ---------------------------------------------------------------------------
+
+class TestAuditLogging:
+    """Test audit logging functionality."""
+
+    @pytest.mark.asyncio
+    async def test_audit_log_without_db_does_not_raise(self):
+        from services.workflow_engine.main import audit_log
+        import services.workflow_engine.main as wf_module
+
+        original_db = wf_module.db_manager
+        wf_module.db_manager = None
+
+        try:
+            # Should not raise even without database
+            await audit_log(
+                event_type="workflow.test",
+                action="test",
+                target_type="test",
+                target_id="test-001",
+            )
+        finally:
+            wf_module.db_manager = original_db
+
+    @pytest.mark.asyncio
+    async def test_audit_log_with_db_writes_entry(self):
+        from services.workflow_engine.main import audit_log
+        import services.workflow_engine.main as wf_module
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        mock_db = MagicMock()
+        mock_db.get_session = MagicMock(return_value=mock_session)
+
+        original_db = wf_module.db_manager
+        wf_module.db_manager = mock_db
+
+        try:
+            await audit_log(
+                event_type="workflow.created",
+                action="create",
+                target_type="workflow",
+                target_id="wf-001",
+                details={"test": True},
+            )
+            mock_session.add.assert_called_once()
+        finally:
+            wf_module.db_manager = original_db
+
+
+# ---------------------------------------------------------------------------
+# Database Persistence
+# ---------------------------------------------------------------------------
+
+class TestDatabasePersistence:
+    """Test database persistence helpers."""
+
+    @pytest.mark.asyncio
+    async def test_persist_workflow_definition_no_db(self):
+        from services.workflow_engine.main import persist_workflow_definition
+        import services.workflow_engine.main as wf_module
+
+        original_db = wf_module.db_manager
+        wf_module.db_manager = None
+
+        try:
+            # Should not raise without database
+            wf_def = WorkflowDefinition(
+                workflow_id="test-persist",
+                name="Test",
+                description="Test workflow",
+                version="1.0",
+                steps=[],
+            )
+            await persist_workflow_definition(wf_def)
+        finally:
+            wf_module.db_manager = original_db
+
+    @pytest.mark.asyncio
+    async def test_persist_execution_no_db(self):
+        from services.workflow_engine.main import persist_execution
+        import services.workflow_engine.main as wf_module
+
+        original_db = wf_module.db_manager
+        wf_module.db_manager = None
+
+        try:
+            execution = WorkflowExecution(
+                execution_id="exec-persist-001",
+                workflow_id="test",
+                status=WorkflowStatus.RUNNING,
+                input={},
+            )
+            await persist_execution(execution)
+        finally:
+            wf_module.db_manager = original_db
+
+    @pytest.mark.asyncio
+    async def test_load_workflow_definitions_no_db(self):
+        from services.workflow_engine.main import load_workflow_definitions_from_db
+        import services.workflow_engine.main as wf_module
+
+        original_db = wf_module.db_manager
+        wf_module.db_manager = None
+
+        try:
+            await load_workflow_definitions_from_db()
+        finally:
+            wf_module.db_manager = original_db
+
+
+# ---------------------------------------------------------------------------
+# Notification Templates
+# ---------------------------------------------------------------------------
+
+class TestNotificationTemplates:
+    """Test new notification templates."""
+
+    def test_sla_breach_template_exists(self):
+        from services.workflow_engine.main import NOTIFICATION_TEMPLATES
+
+        assert "sla_breach" in NOTIFICATION_TEMPLATES
+        tmpl = NOTIFICATION_TEMPLATES["sla_breach"]
+        assert "{task_id}" in tmpl
+        assert "{breach_type}" in tmpl
+
+    def test_approval_required_template_exists(self):
+        from services.workflow_engine.main import NOTIFICATION_TEMPLATES
+
+        assert "approval_required" in NOTIFICATION_TEMPLATES
+        tmpl = NOTIFICATION_TEMPLATES["approval_required"]
+        assert "{approval_id}" in tmpl
+        assert "{playbook_id}" in tmpl
+
+    def test_approval_decided_template_exists(self):
+        from services.workflow_engine.main import NOTIFICATION_TEMPLATES
+
+        assert "approval_decided" in NOTIFICATION_TEMPLATES
+
+
+# ---------------------------------------------------------------------------
+# Request Models
+# ---------------------------------------------------------------------------
+
+class TestRequestModels:
+    """Test Pydantic request models."""
+
+    def test_workflow_update_request_partial(self):
+        from services.workflow_engine.main import WorkflowUpdateRequest
+
+        req = WorkflowUpdateRequest(name="Updated Name")
+        assert req.name == "Updated Name"
+        assert req.description is None
+        assert req.steps is None
+
+    def test_workflow_update_request_status_valid(self):
+        from services.workflow_engine.main import WorkflowUpdateRequest
+
+        req = WorkflowUpdateRequest(status="active")
+        assert req.status == "active"
+
+    def test_task_complete_request_defaults(self):
+        from services.workflow_engine.main import TaskCompleteRequest
+
+        req = TaskCompleteRequest()
+        assert req.output_data is None
+        assert req.notes is None
+
+    def test_approval_request(self):
+        from services.workflow_engine.main import ApprovalRequest
+
+        req = ApprovalRequest(approved=True, approver="admin", reason="OK")
+        assert req.approved is True
+        assert req.approver == "admin"

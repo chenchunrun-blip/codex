@@ -28,6 +28,11 @@ state-machine pattern.  It supports:
 - Automation trigger for SOAR playbook execution
 - Execution timeout monitoring
 - Step result aggregation across the full workflow
+- Database persistence for workflows and executions
+- Audit logging for all workflow actions
+- SLA management with breach detection and escalation
+- Smart task assignment (skill-based / load-balanced)
+- Approval workflow for high-risk automation
 """
 
 import asyncio
@@ -40,7 +45,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from shared.database import DatabaseManager, get_database_manager
+from shared.database.models import AuditLog
+from shared.database.repositories.workflow_repository import WorkflowRepository
 from shared.errors import WorkflowError
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import (
@@ -71,7 +79,7 @@ db_manager: DatabaseManager = None
 publisher: MessagePublisher = None
 consumer: MessageConsumer = None
 
-# In-memory workflow execution storage (use database in production)
+# In-memory caches (backed by database for persistence)
 active_executions: Dict[str, WorkflowExecution] = {}
 workflow_definitions: Dict[str, WorkflowDefinition] = {}
 
@@ -89,6 +97,86 @@ metrics = MetricsCollector("workflow_engine")
 
 # Events used to resume workflows paused on human tasks
 _resume_events: Dict[str, asyncio.Event] = {}
+
+
+# ---------------------------------------------------------------------------
+# SLA Configuration
+# ---------------------------------------------------------------------------
+
+SLA_CONFIG: Dict[str, Dict[str, int]] = {
+    "critical": {"response_minutes": 15, "resolve_minutes": 60},
+    "high": {"response_minutes": 30, "resolve_minutes": 120},
+    "medium": {"response_minutes": 60, "resolve_minutes": 480},
+    "low": {"response_minutes": 120, "resolve_minutes": 1440},
+}
+
+
+# ---------------------------------------------------------------------------
+# Analyst pool for smart task assignment
+# ---------------------------------------------------------------------------
+
+ANALYST_POOL: List[Dict[str, Any]] = [
+    {
+        "id": "analyst-1",
+        "name": "Analyst 1",
+        "skills": ["malware", "phishing", "incident_response"],
+        "active_tasks": 0,
+        "max_tasks": 5,
+        "available": True,
+    },
+    {
+        "id": "analyst-2",
+        "name": "Analyst 2",
+        "skills": ["brute_force", "data_exfiltration", "anomaly"],
+        "active_tasks": 0,
+        "max_tasks": 5,
+        "available": True,
+    },
+    {
+        "id": "analyst-3",
+        "name": "Analyst 3",
+        "skills": ["malware", "brute_force", "phishing", "incident_response"],
+        "active_tasks": 0,
+        "max_tasks": 5,
+        "available": True,
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Approval tracking for high-risk automation
+# ---------------------------------------------------------------------------
+
+pending_approvals: Dict[str, Dict[str, Any]] = {}
+
+
+# ---------------------------------------------------------------------------
+# API request models
+# ---------------------------------------------------------------------------
+
+class WorkflowUpdateRequest(BaseModel):
+    """Request model for updating a workflow definition."""
+
+    name: Optional[str] = Field(default=None, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    steps: Optional[list[dict[str, Any]]] = None
+    timeout_seconds: Optional[int] = Field(default=None, ge=0)
+    status: Optional[str] = Field(default=None, pattern=r"^(draft|active|disabled)$")
+
+
+class TaskCompleteRequest(BaseModel):
+    """Request model for completing a human task."""
+
+    output_data: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+class ApprovalRequest(BaseModel):
+    """Request model for approving/rejecting automation."""
+
+    approved: bool
+    approver: str
+    reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +288,445 @@ DEFAULT_WORKFLOWS = {
 
 
 # ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+
+async def audit_log(
+    event_type: str,
+    action: str,
+    target_type: str = "workflow",
+    target_id: Optional[str] = None,
+    actor_id: str = "system",
+    details: Optional[Dict[str, Any]] = None,
+    old_values: Optional[Dict[str, Any]] = None,
+    new_values: Optional[Dict[str, Any]] = None,
+    status: str = "success",
+    error_message: Optional[str] = None,
+) -> None:
+    """
+    Record an audit log entry for a workflow action.
+
+    Args:
+        event_type: Type of event (e.g. workflow.created, task.completed)
+        action: Action performed (e.g. create, update, delete)
+        target_type: Type of target object (workflow, execution, task)
+        target_id: Identifier of the target object
+        actor_id: Who performed the action
+        details: Additional event details
+        old_values: Previous values (for updates)
+        new_values: New values (for updates)
+        status: Result status (success/failure)
+        error_message: Error message if failed
+    """
+    if not db_manager:
+        logger.debug(f"Audit log (no db): {event_type} {action} {target_type}:{target_id}")
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            log_entry = AuditLog(
+                event_type=event_type,
+                event_category="workflow",
+                action=action,
+                actor_id=actor_id,
+                actor_type="system" if actor_id == "system" else "user",
+                target_type=target_type,
+                target_id=target_id,
+                details=details,
+                old_values=old_values,
+                new_values=new_values,
+                status=status,
+                error_message=error_message,
+            )
+            session.add(log_entry)
+    except Exception as e:
+        logger.warning(f"Failed to write audit log: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Database persistence helpers
+# ---------------------------------------------------------------------------
+
+async def persist_workflow_definition(definition: WorkflowDefinition) -> None:
+    """Persist a workflow definition to the database."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            existing = await repo.get_workflow(definition.workflow_id)
+            if existing:
+                await repo.update_workflow(
+                    definition.workflow_id,
+                    name=definition.name,
+                    description=definition.description,
+                    steps=[s for s in definition.steps],
+                    status="active",
+                )
+            else:
+                await repo.create_workflow(
+                    workflow_id=definition.workflow_id,
+                    name=definition.name,
+                    description=definition.description,
+                    category="alert_processing",
+                    steps=[s for s in definition.steps],
+                    trigger_type="manual",
+                    status="active",
+                )
+    except Exception as e:
+        logger.warning(f"Failed to persist workflow definition: {e}")
+
+
+async def persist_execution(execution: WorkflowExecution) -> None:
+    """Persist a workflow execution to the database."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            existing = await repo.get_execution(execution.execution_id)
+            if existing:
+                updates = {
+                    "status": execution.status.value,
+                    "steps_execution": execution_step_results.get(
+                        execution.execution_id, {}
+                    ),
+                }
+                if execution.completed_at:
+                    updates["completed_at"] = execution.completed_at
+                    duration = (
+                        execution.completed_at - execution.started_at
+                    ).total_seconds()
+                    updates["duration_seconds"] = int(duration)
+                if execution.error:
+                    updates["error_message"] = execution.error
+                if execution.output:
+                    updates["result"] = json.dumps(execution.output)
+                await repo.update_workflow_execution(
+                    execution.execution_id, **updates
+                )
+            else:
+                await repo.create_workflow_execution(
+                    execution_id=execution.execution_id,
+                    workflow_id=execution.workflow_id,
+                    trigger_type="manual",
+                    trigger_reference=execution.input.get(
+                        "alert", execution.input
+                    ).get("alert_id"),
+                )
+    except Exception as e:
+        logger.warning(f"Failed to persist execution: {e}")
+
+
+async def load_workflow_definitions_from_db() -> None:
+    """Load workflow definitions from database into memory on startup."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            db_workflows = await repo.get_all_workflows(status="active")
+            for wf in db_workflows:
+                if wf.workflow_id not in workflow_definitions:
+                    workflow_definitions[wf.workflow_id] = WorkflowDefinition(
+                        workflow_id=wf.workflow_id,
+                        name=wf.name,
+                        description=wf.description,
+                        version="1.0.0",
+                        steps=wf.steps or [],
+                        timeout_seconds=3600,
+                    )
+            logger.info(f"Loaded {len(db_workflows)} workflow definitions from database")
+    except Exception as e:
+        logger.warning(f"Failed to load workflows from database: {e}")
+
+
+# ---------------------------------------------------------------------------
+# SLA management
+# ---------------------------------------------------------------------------
+
+def calculate_sla_deadline(
+    priority: str, created_at: datetime
+) -> Dict[str, datetime]:
+    """
+    Calculate SLA response and resolution deadlines.
+
+    Args:
+        priority: Task priority level
+        created_at: When the task was created
+
+    Returns:
+        Dict with response_deadline and resolve_deadline
+    """
+    sla = SLA_CONFIG.get(priority.lower(), SLA_CONFIG["medium"])
+    return {
+        "response_deadline": created_at + timedelta(minutes=sla["response_minutes"]),
+        "resolve_deadline": created_at + timedelta(minutes=sla["resolve_minutes"]),
+    }
+
+
+async def check_sla_breaches() -> List[Dict[str, Any]]:
+    """
+    Check all pending tasks for SLA breaches and trigger escalations.
+
+    Returns:
+        List of breached task details
+    """
+    breaches: List[Dict[str, Any]] = []
+    now = datetime.utcnow()
+
+    for task_id, task in list(pending_tasks.items()):
+        if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
+            continue
+
+        deadlines = calculate_sla_deadline(task.priority.value, task.created_at)
+
+        response_breached = (
+            task.status == TaskStatus.ASSIGNED
+            and now > deadlines["response_deadline"]
+        )
+        resolve_breached = now > deadlines["resolve_deadline"]
+
+        if response_breached or resolve_breached:
+            breach_type = "resolve" if resolve_breached else "response"
+            breach_info = {
+                "task_id": task_id,
+                "execution_id": task.execution_id,
+                "priority": task.priority.value,
+                "assigned_to": task.assigned_to,
+                "breach_type": breach_type,
+                "created_at": task.created_at.isoformat(),
+                "deadline": deadlines[
+                    f"{breach_type}_deadline"
+                ].isoformat(),
+                "overdue_minutes": int(
+                    (now - deadlines[f"{breach_type}_deadline"]).total_seconds() / 60
+                ),
+            }
+            breaches.append(breach_info)
+
+            # Escalate: notify and re-assign if response SLA breached
+            if response_breached:
+                await _escalate_task(task, breach_info)
+
+    return breaches
+
+
+async def _escalate_task(
+    task: HumanTask, breach_info: Dict[str, Any]
+) -> None:
+    """Escalate a task that has breached its SLA."""
+    logger.warning(
+        f"SLA breach for task {task.task_id}: "
+        f"{breach_info['breach_type']} deadline exceeded by "
+        f"{breach_info['overdue_minutes']} minutes"
+    )
+
+    # Re-assign to a less loaded analyst
+    new_assignee = _find_best_assignee(
+        task.priority.value,
+        task.input_data.get("alert_type", ""),
+        exclude=task.assigned_to,
+    )
+    if new_assignee and new_assignee != task.assigned_to:
+        old_assignee = task.assigned_to
+        task.assigned_to = new_assignee
+        logger.info(
+            f"Task {task.task_id} re-assigned from {old_assignee} to {new_assignee}"
+        )
+
+    await send_notification(
+        channels=["security-team", "management"],
+        template="sla_breach",
+        context=breach_info,
+    )
+
+    await audit_log(
+        event_type="task.sla_breach",
+        action="escalate",
+        target_type="task",
+        target_id=task.task_id,
+        details=breach_info,
+    )
+
+
+async def monitor_sla():
+    """Background task to periodically check SLA breaches."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            breaches = await check_sla_breaches()
+            if breaches:
+                logger.warning(f"SLA breaches detected: {len(breaches)} tasks")
+        except Exception as e:
+            logger.error(f"Error monitoring SLA: {e}", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Smart task assignment
+# ---------------------------------------------------------------------------
+
+def _find_best_assignee(
+    priority: str,
+    alert_type: str = "",
+    exclude: Optional[str] = None,
+) -> str:
+    """
+    Find the best analyst for a task using skill matching and load balancing.
+
+    Strategy:
+    1. Filter available analysts (not at max capacity, not excluded)
+    2. Score by skill match (has relevant alert_type skill)
+    3. Break ties by lowest active task count (load balancing)
+
+    Args:
+        priority: Task priority
+        alert_type: Alert type for skill matching
+        exclude: Analyst ID to exclude (e.g. current assignee during escalation)
+
+    Returns:
+        Best analyst ID, or 'security-team' as fallback
+    """
+    candidates = [
+        a for a in ANALYST_POOL
+        if a["available"]
+        and a["active_tasks"] < a["max_tasks"]
+        and a["id"] != exclude
+    ]
+
+    if not candidates:
+        return "security-team"
+
+    def score(analyst: Dict[str, Any]) -> tuple:
+        skill_match = 1 if alert_type.lower() in analyst["skills"] else 0
+        priority_bonus = 1 if priority in ("critical", "high") and "incident_response" in analyst["skills"] else 0
+        return (skill_match + priority_bonus, -analyst["active_tasks"])
+
+    candidates.sort(key=score, reverse=True)
+    best = candidates[0]
+    best["active_tasks"] += 1
+    return best["id"]
+
+
+def _release_analyst(analyst_id: str) -> None:
+    """Decrement active task count when a task is completed."""
+    for analyst in ANALYST_POOL:
+        if analyst["id"] == analyst_id and analyst["active_tasks"] > 0:
+            analyst["active_tasks"] -= 1
+            break
+
+
+# ---------------------------------------------------------------------------
+# Approval workflow for high-risk automation
+# ---------------------------------------------------------------------------
+
+def requires_approval(
+    playbook_id: str, risk_level: str
+) -> bool:
+    """
+    Determine if automation execution requires approval.
+
+    High-risk playbooks or critical risk levels require approval.
+    """
+    high_risk_playbooks = {"malware-response", "incident-containment"}
+    return (
+        playbook_id in high_risk_playbooks
+        and risk_level.upper() in ("CRITICAL", "HIGH")
+    )
+
+
+async def request_approval(
+    execution: WorkflowExecution,
+    playbook_id: str,
+    step: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Create an approval request for high-risk automation.
+
+    Returns:
+        Approval request details
+    """
+    approval_id = f"approval-{uuid.uuid4()}"
+    alert = execution.input.get("alert", execution.input)
+
+    approval = {
+        "approval_id": approval_id,
+        "execution_id": execution.execution_id,
+        "playbook_id": playbook_id,
+        "alert_id": alert.get("alert_id", "unknown"),
+        "risk_level": execution.input.get("risk_level", "unknown"),
+        "status": "pending",
+        "requested_at": datetime.utcnow().isoformat(),
+        "step": step,
+    }
+    pending_approvals[approval_id] = approval
+
+    await send_notification(
+        channels=["security-team", "management"],
+        template="approval_required",
+        context={
+            "approval_id": approval_id,
+            "playbook_id": playbook_id,
+            "alert_id": alert.get("alert_id", "unknown"),
+            "risk_level": execution.input.get("risk_level", "unknown"),
+        },
+    )
+
+    await audit_log(
+        event_type="automation.approval_requested",
+        action="request_approval",
+        target_type="automation",
+        target_id=approval_id,
+        details=approval,
+    )
+
+    logger.info(
+        f"Approval requested for playbook {playbook_id} "
+        f"(approval_id={approval_id})"
+    )
+
+    return approval
+
+
+def process_approval(
+    approval_id: str,
+    approved: bool,
+    approver: str,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Process an approval decision.
+
+    Args:
+        approval_id: Approval request ID
+        approved: Whether approved or rejected
+        approver: Who made the decision
+        reason: Optional reason
+
+    Returns:
+        Updated approval record
+
+    Raises:
+        WorkflowError: If approval not found or already processed
+    """
+    approval = pending_approvals.get(approval_id)
+    if not approval:
+        raise WorkflowError(f"Approval request not found: {approval_id}")
+
+    if approval["status"] != "pending":
+        raise WorkflowError(
+            f"Approval already processed: {approval['status']}"
+        )
+
+    approval["status"] = "approved" if approved else "rejected"
+    approval["approved_by"] = approver
+    approval["decided_at"] = datetime.utcnow().isoformat()
+    approval["reason"] = reason
+
+    return approval
+
+
+# ---------------------------------------------------------------------------
 # Notification helpers
 # ---------------------------------------------------------------------------
 
@@ -219,6 +746,19 @@ NOTIFICATION_TEMPLATES: Dict[str, str] = {
     "workflow_failed": (
         "Workflow {workflow_id} FAILED for alert {alert_id}.\n"
         "Error: {error}. Step: {current_step}."
+    ),
+    "sla_breach": (
+        "SLA BREACH: Task {task_id} ({breach_type} deadline exceeded).\n"
+        "Priority: {priority}. Assigned to: {assigned_to}. "
+        "Overdue by {overdue_minutes} minutes."
+    ),
+    "approval_required": (
+        "APPROVAL REQUIRED: Playbook {playbook_id} for alert {alert_id}.\n"
+        "Risk level: {risk_level}. Approval ID: {approval_id}."
+    ),
+    "approval_decided": (
+        "Approval {approval_id} {status}: Playbook {playbook_id}.\n"
+        "Decided by: {approved_by}. Reason: {reason}."
     ),
 }
 
@@ -381,6 +921,17 @@ async def trigger_automation(
     if not playbook_id:
         logger.info(f"No playbook mapped for alert_type={alert_type}, skipping automation")
         return {"status": "skipped", "reason": f"No playbook for alert_type={alert_type}"}
+
+    # Check if approval is required for high-risk automation
+    risk_level = execution.input.get("risk_level", "MEDIUM")
+    if requires_approval(playbook_id, risk_level):
+        approval = await request_approval(execution, playbook_id, step)
+        return {
+            "status": "awaiting_approval",
+            "approval_id": approval["approval_id"],
+            "playbook_id": playbook_id,
+            "alert_id": alert_id,
+        }
 
     trigger_payload = {
         "message_id": str(uuid.uuid4()),
@@ -557,17 +1108,34 @@ async def _execute_human_task(
         "low": TaskPriority.LOW,
     }
 
+    # Smart task assignment: find best analyst based on skills and load
+    alert = execution.input.get("alert", execution.input)
+    alert_type = str(alert.get("alert_type", "")).lower()
+    explicit_assignee = step.get("assignee")
+
+    if explicit_assignee and explicit_assignee not in ("security-team", "auto"):
+        assignee = explicit_assignee
+    else:
+        assignee = _find_best_assignee(priority_str, alert_type)
+
     task = HumanTask(
         task_id=f"task-{uuid.uuid4()}",
         execution_id=execution.execution_id,
         task_type=step.get("task_type", "manual_review"),
         title=step.get("title", f"Complete task: {step.get('name')}"),
         description=step.get("description", ""),
-        assigned_to=step.get("assignee", "security-team"),
+        assigned_to=assignee,
         status=TaskStatus.ASSIGNED,
         priority=priority_map.get(priority_str, TaskPriority.MEDIUM),
         input_data=execution.input.copy(),
     )
+
+    # Calculate SLA deadlines and store in task data
+    sla_deadlines = calculate_sla_deadline(priority_str, task.created_at)
+    task.input_data["sla"] = {
+        "response_deadline": sla_deadlines["response_deadline"].isoformat(),
+        "resolve_deadline": sla_deadlines["resolve_deadline"].isoformat(),
+    }
 
     pending_tasks[task.task_id] = task
 
@@ -586,6 +1154,19 @@ async def _execute_human_task(
     logger.info(
         f"Human task {task.task_id} created for execution {execution.execution_id}, "
         f"assigned to {task.assigned_to}"
+    )
+
+    await audit_log(
+        event_type="task.created",
+        action="create",
+        target_type="task",
+        target_id=task.task_id,
+        details={
+            "execution_id": execution.execution_id,
+            "assigned_to": task.assigned_to,
+            "priority": task.priority.value,
+            "sla": task.input_data.get("sla"),
+        },
     )
 
     return {
@@ -656,6 +1237,18 @@ async def execute_workflow(execution: WorkflowExecution):
         active_executions[execution.execution_id] = execution
         execution_step_results[execution.execution_id] = {}
         metrics.inc(WORKFLOWS_STARTED)
+
+        await persist_execution(execution)
+        await audit_log(
+            event_type="workflow.started",
+            action="start",
+            target_type="execution",
+            target_id=execution.execution_id,
+            details={
+                "workflow_id": execution.workflow_id,
+                "input_keys": list(execution.input.keys()),
+            },
+        )
 
         steps = workflow_def.steps
         step_index = 0
@@ -751,6 +1344,22 @@ async def execute_workflow(execution: WorkflowExecution):
             }
             metrics.inc(WORKFLOWS_COMPLETED)
 
+            await persist_execution(execution)
+            await audit_log(
+                event_type="workflow.completed",
+                action="complete",
+                target_type="execution",
+                target_id=execution.execution_id,
+                details={
+                    "workflow_id": execution.workflow_id,
+                    "duration_seconds": (
+                        execution.completed_at - execution.started_at
+                    ).total_seconds()
+                    if execution.completed_at
+                    else None,
+                },
+            )
+
             # Notify on completion
             await _notify_workflow_event(execution, "workflow_completed")
 
@@ -775,6 +1384,15 @@ async def execute_workflow(execution: WorkflowExecution):
         execution.status = WorkflowStatus.FAILED
         execution.error = str(e)
         execution.completed_at = datetime.utcnow()
+        await persist_execution(execution)
+        await audit_log(
+            event_type="workflow.failed",
+            action="fail",
+            target_type="execution",
+            target_id=execution.execution_id,
+            status="failure",
+            error_message=str(e),
+        )
 
     finally:
         # Clean up step results for completed/failed workflows
@@ -855,6 +1473,10 @@ def complete_human_task(
     event = _resume_events.get(task.execution_id)
     if event:
         event.set()
+
+    # Release the analyst's capacity
+    if task.assigned_to:
+        _release_analyst(task.assigned_to)
 
     # Remove from pending
     pending_tasks.pop(task_id, None)
@@ -1081,11 +1703,21 @@ async def lifespan(app: FastAPI):
     # Load workflow definitions
     workflow_definitions.update(DEFAULT_WORKFLOWS)
 
+    # Persist default workflows to database
+    for wf_def in DEFAULT_WORKFLOWS.values():
+        await persist_workflow_definition(wf_def)
+
+    # Load any additional workflows from database
+    await load_workflow_definitions_from_db()
+
     # Start consuming workflow triggers
     asyncio.create_task(consume_workflow_triggers())
 
     # Start background task to monitor active executions
     asyncio.create_task(monitor_executions())
+
+    # Start SLA monitoring
+    asyncio.create_task(monitor_sla())
 
     logger.info("Workflow Engine service started successfully")
 
@@ -1122,6 +1754,14 @@ async def create_workflow_definition(definition: WorkflowDefinition):
     """Create a new workflow definition."""
     try:
         workflow_definitions[definition.workflow_id] = definition
+        await persist_workflow_definition(definition)
+        await audit_log(
+            event_type="workflow.definition_created",
+            action="create",
+            target_type="workflow_definition",
+            target_id=definition.workflow_id,
+            details={"name": definition.name, "steps_count": len(definition.steps)},
+        )
 
         return {
             "success": True,
@@ -1159,6 +1799,133 @@ async def get_workflow_definition(workflow_id: str):
     return {
         "success": True,
         "data": workflow.model_dump(),
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+@app.put("/api/v1/workflows/definitions/{workflow_id}", response_model=Dict[str, Any])
+async def update_workflow_definition(workflow_id: str, updates: WorkflowUpdateRequest):
+    """Update an existing workflow definition."""
+    workflow = workflow_definitions.get(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow definition not found: {workflow_id}")
+
+    old_values = {}
+    new_values = {}
+
+    update_data = updates.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            old_values[field] = getattr(workflow, field, None)
+            if isinstance(old_values[field], list):
+                old_values[field] = f"[{len(old_values[field])} steps]"
+            setattr(workflow, field, value)
+            new_values[field] = value if not isinstance(value, list) else f"[{len(value)} steps]"
+
+    await persist_workflow_definition(workflow)
+    await audit_log(
+        event_type="workflow.definition_updated",
+        action="update",
+        target_type="workflow_definition",
+        target_id=workflow_id,
+        old_values=old_values,
+        new_values=new_values,
+    )
+
+    return {
+        "success": True,
+        "data": workflow.model_dump(),
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+@app.delete("/api/v1/workflows/definitions/{workflow_id}", response_model=Dict[str, Any])
+async def delete_workflow_definition(workflow_id: str):
+    """Delete a workflow definition."""
+    workflow = workflow_definitions.get(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow definition not found: {workflow_id}")
+
+    # Prevent deleting workflows with active executions
+    active = [
+        e for e in active_executions.values()
+        if e.workflow_id == workflow_id
+        and e.status in (WorkflowStatus.RUNNING, WorkflowStatus.PENDING)
+    ]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete workflow with {len(active)} active execution(s)",
+        )
+
+    del workflow_definitions[workflow_id]
+
+    if db_manager:
+        try:
+            async with db_manager.get_session() as session:
+                repo = WorkflowRepository(session)
+                await repo.delete_workflow(workflow_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete workflow from database: {e}")
+
+    await audit_log(
+        event_type="workflow.definition_deleted",
+        action="delete",
+        target_type="workflow_definition",
+        target_id=workflow_id,
+        details={"name": workflow.name},
+    )
+
+    return {
+        "success": True,
+        "message": f"Workflow '{workflow_id}' deleted",
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+@app.post(
+    "/api/v1/workflows/definitions/{workflow_id}/status",
+    response_model=Dict[str, Any],
+)
+async def set_workflow_status(workflow_id: str, status: str):
+    """Enable or disable a workflow definition (set status to active/disabled/draft)."""
+    if status not in ("active", "disabled", "draft"):
+        raise HTTPException(
+            status_code=400,
+            detail="Status must be one of: active, disabled, draft",
+        )
+
+    workflow = workflow_definitions.get(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow definition not found: {workflow_id}")
+
+    old_status = "active"  # in-memory workflows are implicitly active
+    if status == "disabled":
+        # Remove from active definitions so it can't be triggered
+        workflow_definitions.pop(workflow_id, None)
+    else:
+        workflow_definitions[workflow_id] = workflow
+
+    if db_manager:
+        try:
+            async with db_manager.get_session() as session:
+                repo = WorkflowRepository(session)
+                await repo.update_workflow(workflow_id, status=status)
+        except Exception as e:
+            logger.warning(f"Failed to update workflow status in database: {e}")
+
+    await audit_log(
+        event_type="workflow.status_changed",
+        action="update_status",
+        target_type="workflow_definition",
+        target_id=workflow_id,
+        old_values={"status": old_status},
+        new_values={"status": status},
+    )
+
+    return {
+        "success": True,
+        "data": {"workflow_id": workflow_id, "status": status},
         "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
     }
 
@@ -1293,14 +2060,25 @@ async def get_task(task_id: str):
 
 
 @app.post("/api/v1/tasks/{task_id}/complete", response_model=Dict[str, Any])
-async def complete_task_api(
-    task_id: str,
-    output_data: Dict[str, Any] = None,
-    notes: Optional[str] = None,
-):
+async def complete_task_api(task_id: str, body: TaskCompleteRequest = None):
     """Complete a human task and resume the associated workflow."""
     try:
-        task = complete_human_task(task_id, output_data, notes)
+        if body is None:
+            body = TaskCompleteRequest()
+        task = complete_human_task(task_id, body.output_data, body.notes)
+
+        await audit_log(
+            event_type="task.completed",
+            action="complete",
+            target_type="task",
+            target_id=task_id,
+            details={
+                "execution_id": task.execution_id,
+                "output_data": task.output_data,
+                "notes": task.notes,
+            },
+        )
+
         return {
             "success": True,
             "data": task.model_dump(),
@@ -1309,6 +2087,181 @@ async def complete_task_api(
         }
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Correlation endpoint
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Approval endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/approvals", response_model=Dict[str, Any])
+async def list_approvals(status: Optional[str] = None):
+    """List automation approval requests."""
+    approvals = list(pending_approvals.values())
+    if status:
+        approvals = [a for a in approvals if a["status"] == status]
+
+    return {
+        "success": True,
+        "data": {"approvals": approvals, "total": len(approvals)},
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+@app.post("/api/v1/approvals/{approval_id}", response_model=Dict[str, Any])
+async def decide_approval(approval_id: str, body: ApprovalRequest):
+    """Approve or reject an automation execution."""
+    try:
+        approval = process_approval(
+            approval_id, body.approved, body.approver, body.reason
+        )
+
+        await audit_log(
+            event_type="automation.approval_decided",
+            action="approve" if body.approved else "reject",
+            target_type="automation",
+            target_id=approval_id,
+            actor_id=body.approver,
+            details={
+                "playbook_id": approval["playbook_id"],
+                "approved": body.approved,
+                "reason": body.reason,
+            },
+        )
+
+        # If approved, trigger the automation
+        if body.approved:
+            execution = active_executions.get(approval["execution_id"])
+            if execution:
+                step = approval.get("step", {})
+                step["playbook_id"] = approval["playbook_id"]
+                # Temporarily remove approval requirement to avoid loop
+                original_risk = execution.input.get("risk_level")
+                execution.input["risk_level"] = "APPROVED"
+                result = await trigger_automation(execution, step)
+                execution.input["risk_level"] = original_risk
+                approval["automation_result"] = result
+
+        await send_notification(
+            channels=["security-team"],
+            template="approval_decided",
+            context={
+                "approval_id": approval_id,
+                "playbook_id": approval.get("playbook_id", "unknown"),
+                "status": approval["status"],
+                "approved_by": body.approver,
+                "reason": body.reason or "N/A",
+            },
+        )
+
+        return {
+            "success": True,
+            "data": approval,
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+    except WorkflowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# SLA endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/sla/breaches", response_model=Dict[str, Any])
+async def get_sla_breaches():
+    """Check for current SLA breaches across all pending tasks."""
+    breaches = await check_sla_breaches()
+    return {
+        "success": True,
+        "data": {"breaches": breaches, "total": len(breaches)},
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+@app.get("/api/v1/sla/config", response_model=Dict[str, Any])
+async def get_sla_config():
+    """Get current SLA configuration."""
+    return {
+        "success": True,
+        "data": SLA_CONFIG,
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Audit log endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/audit-logs", response_model=Dict[str, Any])
+async def get_audit_logs(
+    event_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    limit: int = 50,
+):
+    """Query audit logs for workflow events."""
+    if not db_manager:
+        return {
+            "success": True,
+            "data": {"logs": [], "total": 0, "message": "Database not available"},
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+
+    try:
+        from sqlalchemy import select
+
+        async with db_manager.get_session() as session:
+            query = select(AuditLog).where(
+                AuditLog.event_category == "workflow"
+            )
+            if event_type:
+                query = query.where(AuditLog.event_type == event_type)
+            if target_id:
+                query = query.where(AuditLog.target_id == target_id)
+            query = query.order_by(AuditLog.timestamp.desc()).limit(limit)
+
+            result = await session.execute(query)
+            logs = result.scalars().all()
+
+            log_data = [
+                {
+                    "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                    "event_type": log.event_type,
+                    "action": log.action,
+                    "actor_id": log.actor_id,
+                    "target_type": log.target_type,
+                    "target_id": log.target_id,
+                    "details": log.details,
+                    "status": log.status,
+                    "error_message": log.error_message,
+                }
+                for log in logs
+            ]
+
+        return {
+            "success": True,
+            "data": {"logs": log_data, "total": len(log_data)},
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+    except Exception as e:
+        logger.error(f"Failed to query audit logs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to query audit logs: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Analyst pool management endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/analysts", response_model=Dict[str, Any])
+async def list_analysts():
+    """List all analysts and their current workload."""
+    return {
+        "success": True,
+        "data": {"analysts": ANALYST_POOL, "total": len(ANALYST_POOL)},
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1356,6 +2309,14 @@ async def health_check():
         },
         "tasks": {
             "pending": len(pending_tasks),
+        },
+        "approvals": {
+            "pending": len([a for a in pending_approvals.values() if a["status"] == "pending"]),
+            "total": len(pending_approvals),
+        },
+        "analysts": {
+            "total": len(ANALYST_POOL),
+            "available": len([a for a in ANALYST_POOL if a["available"] and a["active_tasks"] < a["max_tasks"]]),
         },
         "correlation": {
             "recent_alerts_cached": len(recent_alerts_cache),
