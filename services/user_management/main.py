@@ -14,10 +14,13 @@
 
 """User Management Service - User CRUD, roles, permissions, and authentication."""
 
+import base64
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+import pyotp
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +97,26 @@ class LoginRequest(BaseModel):
 
     username_or_email: str
     password: str
+
+
+class MFAVerifyRequest(BaseModel):
+    """Request to verify MFA code during setup."""
+
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class MFADisableRequest(BaseModel):
+    """Request to disable MFA."""
+
+    password: str
+
+
+class MFALoginRequest(BaseModel):
+    """Second-factor verification after initial login."""
+
+    username_or_email: str
+    mfa_code: str = Field(..., min_length=6, max_length=6)
+    mfa_token: str
 
 
 # ---------------------------------------------------------------------------
