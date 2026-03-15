@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.pyo
+*.egg-info
+dist
+build
+*.egg
+.eggs
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tox
+.coverage
+htmlcov
+.venv
+venv
+env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose*.yml
+Dockerfile
+
+# Docs (not needed in images)
+docs/
+standards/
+*.md
+!services/shared/README.md
+LICENSE
+
+# Logs & data (mounted at runtime)
+logs/
+*.log
+
+# Tests (not needed in production images)
+tests/
+pytest.ini
+
+# Environment files
+.env
+.env.*
+
+# Monitoring configs (mounted separately)
+monitoring/
+kong.yml
+
+# Prototype code (not part of microservices)
+src/
+config/
+main.py
+test_*.py
