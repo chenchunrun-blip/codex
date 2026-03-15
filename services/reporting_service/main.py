@@ -16,15 +16,16 @@
 Reporting Service - Generates, persists, and delivers security reports.
 
 Supports daily/weekly/monthly summaries, incident reports, trend analysis,
-and custom reports with HTML, JSON, and CSV export. Reports are persisted
-to the database and events are published via RabbitMQ.
+and custom reports with PDF, HTML, JSON, and CSV export.  Reports are
+rendered via Jinja2 templates, persisted to the database, and stored in
+MinIO (or local filesystem as fallback).  Events are published via RabbitMQ.
 """
 
-import asyncio
 import csv
 import io
 import json
 import os
+import pathlib
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -34,6 +35,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.database.models import AuditLog, Report
@@ -44,12 +46,26 @@ from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
 
+from storage import ReportStorage
+
 logger = get_logger(__name__)
 config = Config()
 
 db_manager: DatabaseManager = None
 consumer: MessageConsumer = None
 publisher: MessagePublisher = None
+report_storage: ReportStorage = None
+
+# ---------------------------------------------------------------------------
+# Jinja2 template engine
+# ---------------------------------------------------------------------------
+
+TEMPLATE_DIR = pathlib.Path(__file__).parent / "templates"
+
+jinja_env = Environment(
+    loader=FileSystemLoader(str(TEMPLATE_DIR)),
+    autoescape=select_autoescape(["html"]),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +76,7 @@ publisher: MessagePublisher = None
 class ReportFormat(str, Enum):
     """Report output formats."""
 
+    PDF = "pdf"
     HTML = "html"
     CSV = "csv"
     JSON = "json"
@@ -83,6 +100,17 @@ class ReportStatus(str, Enum):
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# Template mapping: report_type -> template file
+TEMPLATE_MAP = {
+    ReportType.DAILY_SUMMARY.value: "summary.html",
+    ReportType.WEEKLY_SUMMARY.value: "summary.html",
+    ReportType.MONTHLY_SUMMARY.value: "summary.html",
+    ReportType.INCIDENT_REPORT.value: "incident.html",
+    ReportType.TREND_ANALYSIS.value: "trend.html",
+    ReportType.CUSTOM.value: "summary.html",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +181,7 @@ async def audit_log(
 
 
 # ---------------------------------------------------------------------------
-# Report data helpers (query DB when available, fall back to mock)
+# Report data helpers (query DB when available, fall back gracefully)
 # ---------------------------------------------------------------------------
 
 
@@ -227,7 +255,6 @@ async def _generate_summary_data(
             alert_stats = await _query_alert_stats(session, start_date, end_date)
             report_data["summary"] = alert_stats
     else:
-        # Fallback mock data when DB is unavailable
         report_data["summary"] = {
             "total_alerts": 0,
             "by_severity": {},
@@ -329,93 +356,34 @@ async def _generate_trend_data(
 # ---------------------------------------------------------------------------
 
 
+def _render_template(report_data: Dict[str, Any]) -> str:
+    """
+    Render report data to HTML using Jinja2 templates.
+
+    Selects the appropriate template based on report_type and renders
+    with the full report_data context.
+
+    Args:
+        report_data: Report data dictionary
+
+    Returns:
+        Rendered HTML string
+    """
+    report_type = report_data.get("report_type", "custom")
+    template_name = TEMPLATE_MAP.get(report_type, "summary.html")
+
+    try:
+        template = jinja_env.get_template(template_name)
+    except Exception:
+        template = jinja_env.get_template("base.html")
+
+    title = report_type.replace("_", " ").title()
+    return template.render(title=title, **report_data)
+
+
 def _format_html(report_data: Dict[str, Any]) -> str:
-    """Render report data as a styled HTML document."""
-    title = report_data.get("report_type", "Report").replace("_", " ").title()
-    generated = report_data.get("generated_at", "N/A")
-    period = report_data.get("period", {})
-    summary = report_data.get("summary", report_data.get("current_period", {}))
-    incident = report_data.get("incident_details", {})
-    recommendations = report_data.get("recommendations", [])
-
-    summary_rows = ""
-    if summary:
-        for key, value in summary.items():
-            if isinstance(value, dict):
-                formatted = ", ".join(f"{k}: {v}" for k, v in value.items()) if value else "N/A"
-            else:
-                formatted = str(value)
-            summary_rows += f"<tr><td>{key.replace('_', ' ').title()}</td><td>{formatted}</td></tr>\n"
-
-    incident_rows = ""
-    if incident:
-        for key, value in incident.items():
-            incident_rows += f"<tr><td>{key.replace('_', ' ').title()}</td><td>{value}</td></tr>\n"
-
-    rec_items = "".join(f"<li>{r}</li>" for r in recommendations)
-
-    period_html = ""
-    if period:
-        period_html = f"<p><strong>Period:</strong> {period.get('start', '')} to {period.get('end', '')}</p>"
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{title}</title>
-    <style>
-        body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #333; }}
-        h1 {{ color: #1a237e; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }}
-        h2 {{ color: #283593; margin-top: 30px; }}
-        .meta {{ color: #666; font-size: 0.9em; margin-bottom: 20px; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
-        th {{ background-color: #1a237e; color: white; }}
-        tr:nth-child(even) {{ background-color: #f5f5f5; }}
-        ul {{ line-height: 1.8; }}
-        .footer {{ margin-top: 40px; font-size: 0.8em; color: #999; border-top: 1px solid #eee; padding-top: 10px; }}
-    </style>
-</head>
-<body>
-    <h1>{title}</h1>
-    <div class="meta">
-        <p><strong>Generated:</strong> {generated}</p>
-        <p><strong>Report ID:</strong> {report_data.get('report_id', 'N/A')}</p>
-        {period_html}
-    </div>
-"""
-
-    if summary_rows:
-        html += f"""
-    <h2>Summary</h2>
-    <table>
-        <tr><th>Metric</th><th>Value</th></tr>
-        {summary_rows}
-    </table>
-"""
-
-    if incident_rows:
-        html += f"""
-    <h2>Incident Details</h2>
-    <table>
-        <tr><th>Field</th><th>Value</th></tr>
-        {incident_rows}
-    </table>
-"""
-
-    if rec_items:
-        html += f"""
-    <h2>Recommendations</h2>
-    <ul>{rec_items}</ul>
-"""
-
-    html += """
-    <div class="footer">
-        <p>Security Alert Triage System - Auto-generated Report</p>
-    </div>
-</body>
-</html>"""
-    return html
+    """Render report data as a styled HTML document via Jinja2 templates."""
+    return _render_template(report_data)
 
 
 def _format_csv(report_data: Dict[str, Any]) -> str:
@@ -460,13 +428,159 @@ def _format_csv(report_data: Dict[str, Any]) -> str:
     return output.getvalue()
 
 
+def _format_pdf(report_data: Dict[str, Any]) -> bytes:
+    """
+    Render report data as a PDF document.
+
+    Uses weasyprint if available, otherwise falls back to a simple
+    reportlab-based PDF, or ultimately to HTML bytes as a last resort.
+
+    Args:
+        report_data: Report data dictionary
+
+    Returns:
+        PDF content as bytes
+    """
+    html_content = _render_template(report_data)
+
+    # Try weasyprint first (best quality)
+    try:
+        from weasyprint import HTML as WeasyprintHTML
+
+        pdf_bytes = WeasyprintHTML(string=html_content).write_pdf()
+        logger.info("PDF generated via weasyprint")
+        return pdf_bytes
+    except ImportError:
+        logger.debug("weasyprint not installed, trying xhtml2pdf")
+    except Exception as e:
+        logger.warning(f"weasyprint PDF generation failed: {e}, trying xhtml2pdf")
+
+    # Try xhtml2pdf (pure Python fallback)
+    try:
+        from xhtml2pdf import pisa
+
+        result_buf = io.BytesIO()
+        pisa_status = pisa.CreatePDF(io.StringIO(html_content), dest=result_buf)
+        if not pisa_status.err:
+            logger.info("PDF generated via xhtml2pdf")
+            return result_buf.getvalue()
+        logger.warning("xhtml2pdf returned errors, trying reportlab")
+    except ImportError:
+        logger.debug("xhtml2pdf not installed, trying reportlab")
+    except Exception as e:
+        logger.warning(f"xhtml2pdf PDF generation failed: {e}, trying reportlab")
+
+    # Fallback: reportlab (basic PDF)
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.lib import colors
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+        styles = getSampleStyleSheet()
+        story: List[Any] = []
+
+        # Title
+        title_style = ParagraphStyle(
+            "ReportTitle", parent=styles["Heading1"], fontSize=18, spaceAfter=12,
+            textColor=colors.HexColor("#1a237e"),
+        )
+        report_type = report_data.get("report_type", "Report").replace("_", " ").title()
+        story.append(Paragraph(report_type, title_style))
+        story.append(Spacer(1, 6))
+
+        # Meta
+        meta_style = ParagraphStyle("Meta", parent=styles["Normal"], fontSize=9, textColor=colors.gray)
+        story.append(Paragraph(f"Report ID: {report_data.get('report_id', 'N/A')}", meta_style))
+        story.append(Paragraph(f"Generated: {report_data.get('generated_at', 'N/A')}", meta_style))
+        period = report_data.get("period", {})
+        if period:
+            story.append(Paragraph(f"Period: {period.get('start', '')} to {period.get('end', '')}", meta_style))
+        story.append(Spacer(1, 12))
+
+        # Summary table
+        summary = report_data.get("summary", report_data.get("current_period", {}))
+        if summary:
+            story.append(Paragraph("Summary", styles["Heading2"]))
+            table_data = [["Metric", "Value"]]
+            for key, value in summary.items():
+                if isinstance(value, dict):
+                    formatted = ", ".join(f"{k}: {v}" for k, v in value.items()) if value else "N/A"
+                else:
+                    formatted = str(value)
+                table_data.append([key.replace("_", " ").title(), formatted])
+
+            t = Table(table_data, colWidths=[8 * cm, 8 * cm])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 12))
+
+        # Incident details table
+        incident = report_data.get("incident_details", {})
+        if incident:
+            story.append(Paragraph("Incident Details", styles["Heading2"]))
+            table_data = [["Field", "Value"]]
+            for key, value in incident.items():
+                table_data.append([key.replace("_", " ").title(), str(value or "N/A")])
+            t = Table(table_data, colWidths=[6 * cm, 10 * cm])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 12))
+
+        # Recommendations / Insights
+        recs = report_data.get("recommendations", report_data.get("insights", []))
+        if recs:
+            story.append(Paragraph("Recommendations", styles["Heading2"]))
+            for rec in recs:
+                story.append(Paragraph(f"• {rec}", styles["Normal"]))
+            story.append(Spacer(1, 6))
+
+        doc.build(story)
+        logger.info("PDF generated via reportlab")
+        return buf.getvalue()
+
+    except ImportError:
+        logger.warning("No PDF library available (weasyprint/xhtml2pdf/reportlab), returning HTML as PDF content")
+    except Exception as e:
+        logger.error(f"reportlab PDF generation failed: {e}")
+
+    # Ultimate fallback: return HTML bytes with a warning
+    return html_content.encode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Background report generation
 # ---------------------------------------------------------------------------
 
 
-async def _run_report_generation(report_id: str, report_type: str, params: Dict[str, Any]):
-    """Background task: generate report data, persist, and publish event."""
+async def _run_report_generation(
+    report_id: str,
+    report_type: str,
+    report_format: str,
+    params: Dict[str, Any],
+):
+    """Background task: generate report data, format, store, and publish event."""
     try:
         # Update status to generating
         if db_manager:
@@ -514,9 +628,29 @@ async def _run_report_generation(report_id: str, report_type: str, params: Dict[
             report_data = await _generate_summary_data(report_id, report_type, start, end)
             report_data["custom_filters"] = filters
 
-        # Serialize and compute size
-        report_json = json.dumps(report_data, default=str)
-        file_size = len(report_json.encode("utf-8"))
+        # Format the report into the requested output
+        if report_format == ReportFormat.PDF.value:
+            file_content = _format_pdf(report_data)
+            file_ext = "pdf"
+        elif report_format == ReportFormat.HTML.value:
+            file_content = _format_html(report_data).encode("utf-8")
+            file_ext = "html"
+        elif report_format == ReportFormat.CSV.value:
+            file_content = _format_csv(report_data).encode("utf-8")
+            file_ext = "csv"
+        else:
+            file_content = json.dumps(report_data, default=str, indent=2).encode("utf-8")
+            file_ext = "json"
+
+        file_size = len(file_content)
+
+        # Store in MinIO / local filesystem
+        file_path: Optional[str] = None
+        if report_storage:
+            try:
+                file_path = report_storage.upload_report(report_id, file_content, file_ext)
+            except Exception as e:
+                logger.warning(f"Failed to upload report to storage: {e}")
 
         # Persist completed status to DB
         if db_manager:
@@ -525,9 +659,10 @@ async def _run_report_generation(report_id: str, report_type: str, params: Dict[
                 await repo.update_status(
                     report_id,
                     ReportStatus.COMPLETED.value,
+                    file_path=file_path,
                     file_size=file_size,
                 )
-                # Store the report content in filters field as a pragmatic approach
+                # Also store report data in JSON for API retrieval
                 report_obj = await repo.get_by_report_id(report_id)
                 if report_obj:
                     report_obj.filters = {"_report_data": report_data, **(report_obj.filters or {})}
@@ -542,6 +677,9 @@ async def _run_report_generation(report_id: str, report_type: str, params: Dict[
                         "event": "report.completed",
                         "report_id": report_id,
                         "report_type": report_type,
+                        "format": report_format,
+                        "file_path": file_path,
+                        "file_size": file_size,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
@@ -552,10 +690,18 @@ async def _run_report_generation(report_id: str, report_type: str, params: Dict[
             event_type="report.generated",
             action="generate",
             target_id=report_id,
-            details={"report_type": report_type, "file_size": file_size},
+            details={
+                "report_type": report_type,
+                "format": report_format,
+                "file_size": file_size,
+                "storage_path": file_path,
+            },
         )
 
-        logger.info(f"Report {report_id} generated successfully", extra={"report_type": report_type})
+        logger.info(
+            f"Report {report_id} generated successfully",
+            extra={"report_type": report_type, "format": report_format, "size": file_size},
+        )
 
     except Exception as e:
         logger.error(f"Failed to generate report {report_id}: {e}", exc_info=True)
@@ -593,6 +739,7 @@ async def _handle_report_request(message: Dict[str, Any]) -> None:
         return
 
     report_id = f"report-{uuid.uuid4()}"
+    report_format = params.get("format", "json")
     logger.info(f"Processing MQ report request: {report_id}", extra={"report_type": report_type})
 
     if db_manager:
@@ -602,14 +749,14 @@ async def _handle_report_request(message: Dict[str, Any]) -> None:
                 "report_id": report_id,
                 "name": params.get("name", f"{report_type} Report"),
                 "report_type": report_type,
-                "format": params.get("format", "json"),
+                "format": report_format,
                 "status": ReportStatus.PENDING.value,
                 "filters": params.get("filters"),
                 "created_by": params.get("created_by", "mq-consumer"),
             })
             await session.commit()
 
-    await _run_report_generation(report_id, report_type, params)
+    await _run_report_generation(report_id, report_type, report_format, params)
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +767,7 @@ async def _handle_report_request(message: Dict[str, Any]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
-    global db_manager, consumer, publisher
+    global db_manager, consumer, publisher, report_storage
 
     logger.info("Starting Reporting service...")
 
@@ -632,6 +779,10 @@ async def lifespan(app: FastAPI):
         echo=config.debug,
     )
     db_manager = get_database_manager()
+
+    # Initialize file storage (MinIO or local)
+    report_storage = ReportStorage()
+    await report_storage.initialize()
 
     # Initialize message queue (optional - graceful if unavailable)
     amqp_url = os.getenv("RABBITMQ_URL", "")
@@ -672,8 +823,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Reporting Service",
-    description="Generates, persists, and delivers security reports and summaries",
-    version="2.0.0",
+    description="Generates, persists, and delivers security reports with PDF/HTML/CSV/JSON export and MinIO storage",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -696,6 +847,7 @@ async def generate_report(body: ReportGenerateRequest, background_tasks: Backgro
     Generate a report asynchronously.
 
     Creates a report record in the database and kicks off background generation.
+    Supports PDF, HTML, CSV, and JSON output formats.
     """
     if body.report_type == ReportType.INCIDENT_REPORT and not body.alert_id:
         raise HTTPException(status_code=400, detail="alert_id is required for incident reports")
@@ -729,7 +881,9 @@ async def generate_report(body: ReportGenerateRequest, background_tasks: Backgro
             "alert_id": body.alert_id,
             "filters": body.filters or {},
         }
-        background_tasks.add_task(_run_report_generation, report_id, body.report_type.value, params)
+        background_tasks.add_task(
+            _run_report_generation, report_id, body.report_type.value, body.format.value, params
+        )
 
         return {
             "success": True,
@@ -769,6 +923,12 @@ async def get_report(report_id: str):
             if report_content:
                 data["report_data"] = report_content
 
+        # Include presigned download URL if stored in MinIO
+        if report.file_path and report_storage:
+            presigned_url = report_storage.get_presigned_url(report.file_path)
+            if presigned_url:
+                data["download_url"] = presigned_url
+
     return {
         "success": True,
         "data": data,
@@ -777,8 +937,14 @@ async def get_report(report_id: str):
 
 
 @app.get("/api/v1/reports/{report_id}/download")
-async def download_report(report_id: str, format: ReportFormat = ReportFormat.JSON):
-    """Download generated report in the specified format."""
+async def download_report(report_id: str, format: Optional[ReportFormat] = None):
+    """
+    Download generated report.
+
+    If the report has a file stored in MinIO/local storage, serves that file.
+    Otherwise, re-renders the report data in the requested format.
+    The ``format`` query parameter overrides the stored format for re-rendering.
+    """
     if not db_manager:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -795,18 +961,47 @@ async def download_report(report_id: str, format: ReportFormat = ReportFormat.JS
             )
 
         report_data = (report.filters or {}).get("_report_data")
-        if not report_data:
-            raise HTTPException(status_code=404, detail="Report data not available")
+        stored_format = report.format or "json"
+
+    # Determine output format: use query param override or stored format
+    output_format = format.value if format else stored_format
+
+    # Try to serve from storage first (if format matches stored format)
+    if report.file_path and report_storage and output_format == stored_format:
+        file_bytes = report_storage.download_report(report.file_path)
+        if file_bytes:
+            content_types = {
+                "pdf": "application/pdf",
+                "html": "text/html",
+                "csv": "text/csv",
+                "json": "application/json",
+            }
+            return Response(
+                content=file_bytes,
+                media_type=content_types.get(output_format, "application/octet-stream"),
+                headers={"Content-Disposition": f"attachment; filename={report_id}.{output_format}"},
+            )
+
+    # Fall back to re-rendering from report_data
+    if not report_data:
+        raise HTTPException(status_code=404, detail="Report data not available")
 
     try:
-        if format == ReportFormat.HTML:
+        if output_format == "pdf":
+            content = _format_pdf(report_data)
+            return Response(
+                content=content,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={report_id}.pdf"},
+            )
+        elif output_format == "html":
             content = _format_html(report_data)
             return Response(
                 content=content,
                 media_type="text/html",
                 headers={"Content-Disposition": f"attachment; filename={report_id}.html"},
             )
-        elif format == ReportFormat.CSV:
+        elif output_format == "csv":
             content = _format_csv(report_data)
             return Response(
                 content=content,
@@ -918,12 +1113,23 @@ async def list_scheduled_reports(frequency: Optional[str] = None):
 
 @app.delete("/api/v1/reports/{report_id}", response_model=Dict[str, Any])
 async def delete_report(report_id: str):
-    """Delete a report."""
+    """Delete a report and its stored file."""
     if not db_manager:
         raise HTTPException(status_code=503, detail="Database not available")
 
     async with db_manager.get_session() as session:
         repo = ReportRepository(session)
+        report = await repo.get_by_report_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail=f"Report not found: {report_id}")
+
+        # Delete file from storage
+        if report.file_path and report_storage:
+            try:
+                report_storage.delete_report(report.file_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete report file from storage: {e}")
+
         deleted = await repo.delete_report(report_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Report not found: {report_id}")
@@ -970,6 +1176,7 @@ async def health_check():
     """Health check endpoint."""
     db_ok = db_manager is not None
     mq_ok = publisher is not None
+    storage_ok = report_storage is not None
 
     status = "healthy" if db_ok else "degraded"
 
@@ -982,14 +1189,19 @@ async def health_check():
         except Exception:
             report_stats = {"error": "Failed to query"}
 
+    storage_backend = "unavailable"
+    if storage_ok:
+        storage_backend = "minio" if report_storage.is_minio_available else "local_filesystem"
+
     return {
         "status": status,
         "service": "reporting-service",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "timestamp": datetime.utcnow().isoformat(),
         "dependencies": {
             "database": "connected" if db_ok else "unavailable",
             "message_queue": "connected" if mq_ok else "unavailable",
+            "file_storage": storage_backend,
         },
         "reports": report_stats,
     }

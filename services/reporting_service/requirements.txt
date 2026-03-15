@@ -16,6 +16,17 @@ redis[hiredis]>=4.6.0
 # Message Queue
 aio-pika>=9.3.0
 
+# Template engine
+jinja2>=3.1.0
+
+# PDF generation (install at least one)
+reportlab>=4.0.0
+xhtml2pdf>=0.2.11
+# weasyprint>=60.0  # Requires system deps: cairo, pango, gdk-pixbuf
+
+# Object storage
+minio>=7.2.0
+
 # Logging
 loguru>=0.7.0
 

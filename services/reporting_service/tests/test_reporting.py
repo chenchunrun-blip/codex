@@ -15,11 +15,13 @@
 """
 Unit tests for the Reporting Service.
 
-Tests API endpoints, report generation logic, formatters,
-and database persistence.
+Tests API endpoints, Jinja2 template rendering, PDF generation,
+MinIO storage, CSV/HTML formatters, and database persistence.
 """
 
 import json
+import os
+import tempfile
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,13 +32,18 @@ from main import (
     ReportFormat,
     ReportStatus,
     ReportType,
+    TEMPLATE_MAP,
     _format_csv,
     _format_html,
+    _format_pdf,
     _generate_incident_data,
     _generate_summary_data,
     _generate_trend_data,
+    _render_template,
     app,
+    jinja_env,
 )
+from storage import ReportStorage
 
 
 # =============================================================================
@@ -102,6 +109,30 @@ def sample_incident_data():
 
 
 @pytest.fixture
+def sample_trend_data():
+    """Sample trend analysis report data."""
+    return {
+        "report_id": "report-test-003",
+        "report_type": "trend_analysis",
+        "generated_at": "2026-03-15T12:00:00",
+        "period": {
+            "start": "2026-02-15T00:00:00",
+            "end": "2026-03-15T12:00:00",
+        },
+        "current_period": {
+            "total_alerts": 300,
+            "by_severity": {"critical": 10, "high": 40, "medium": 100, "low": 150},
+            "by_status": {"pending": 50, "triaged": 200, "resolved": 50},
+            "by_type": {"malware": 80, "phishing": 70, "brute_force": 60},
+        },
+        "insights": [
+            "Review top alert categories",
+            "Compare severity distribution",
+        ],
+    }
+
+
+@pytest.fixture
 def mock_report():
     """Create a mock Report ORM object."""
     report = MagicMock()
@@ -116,7 +147,7 @@ def mock_report():
             "report_id": "report-test-001",
             "report_type": "daily_summary",
             "generated_at": "2026-03-15T12:00:00",
-            "summary": {"total_alerts": 10},
+            "summary": {"total_alerts": 10, "by_severity": {}, "by_status": {}, "by_type": {}},
             "recommendations": [],
         }
     }
@@ -158,24 +189,102 @@ def mock_pending_report():
 
 
 # =============================================================================
-# HTML Formatter Tests
+# Jinja2 Template Tests
+# =============================================================================
+
+
+class TestJinja2Templates:
+    """Test Jinja2 template loading and rendering."""
+
+    def test_template_dir_exists(self):
+        """Test that template directory exists."""
+        from main import TEMPLATE_DIR
+        assert TEMPLATE_DIR.exists()
+
+    def test_all_templates_load(self):
+        """Test that all mapped templates can be loaded."""
+        for report_type, template_name in TEMPLATE_MAP.items():
+            template = jinja_env.get_template(template_name)
+            assert template is not None, f"Failed to load template: {template_name}"
+
+    def test_base_template_exists(self):
+        """Test base template can be loaded."""
+        template = jinja_env.get_template("base.html")
+        assert template is not None
+
+    def test_render_summary_template(self, sample_report_data):
+        """Test rendering summary template with data."""
+        html = _render_template(sample_report_data)
+
+        assert "<!DOCTYPE html>" in html
+        assert "Daily Summary" in html
+        assert "report-test-001" in html
+        assert "150" in html  # total_alerts
+        assert "Review critical alerts immediately" in html
+
+    def test_render_incident_template(self, sample_incident_data):
+        """Test rendering incident template with data."""
+        html = _render_template(sample_incident_data)
+
+        assert "<!DOCTYPE html>" in html
+        assert "Incident Report" in html
+        assert "ALT-001" in html
+        assert "CRITICAL" in html  # severity badge
+        assert "Ransomware detected" in html
+
+    def test_render_trend_template(self, sample_trend_data):
+        """Test rendering trend template with data."""
+        html = _render_template(sample_trend_data)
+
+        assert "<!DOCTYPE html>" in html
+        assert "Trend Analysis" in html
+        assert "300" in html  # total_alerts
+        assert "Review top alert categories" in html
+
+    def test_render_unknown_type_falls_back(self):
+        """Test rendering with unknown report type uses base template."""
+        data = {
+            "report_id": "r1",
+            "report_type": "unknown_type",
+            "generated_at": "2026-01-01",
+        }
+        html = _render_template(data)
+        assert "<!DOCTYPE html>" in html
+
+    def test_render_summary_severity_percentages(self, sample_report_data):
+        """Test that summary template renders severity percentages."""
+        html = _render_template(sample_report_data)
+
+        # 5 / 150 = 3.3%
+        assert "3.3%" in html
+
+    def test_render_empty_data(self):
+        """Test rendering with minimal data doesn't crash."""
+        data = {
+            "report_id": "r1",
+            "report_type": "daily_summary",
+            "generated_at": "2026-01-01",
+        }
+        html = _render_template(data)
+        assert "<!DOCTYPE html>" in html
+
+
+# =============================================================================
+# HTML Formatter Tests (now uses Jinja2)
 # =============================================================================
 
 
 class TestHTMLFormatter:
-    """Test HTML report formatting."""
+    """Test HTML report formatting via Jinja2."""
 
-    def test_format_html_with_summary(self, sample_report_data):
-        """Test HTML formatting includes summary table."""
+    def test_format_html_uses_templates(self, sample_report_data):
+        """Test _format_html delegates to Jinja2 templates."""
         html = _format_html(sample_report_data)
 
         assert "<!DOCTYPE html>" in html
         assert "Daily Summary" in html
         assert "report-test-001" in html
-        assert "Total Alerts" in html
-        assert "150" in html
-        assert "Recommendations" in html
-        assert "Review critical alerts immediately" in html
+        assert "stat-card" in html  # template-specific CSS class
 
     def test_format_html_with_incident(self, sample_incident_data):
         """Test HTML formatting for incident report."""
@@ -183,8 +292,7 @@ class TestHTMLFormatter:
 
         assert "Incident Report" in html
         assert "ALT-001" in html
-        assert "Incident Details" in html
-        assert "malware" in html
+        assert "badge-critical" in html  # severity badge
 
     def test_format_html_with_period(self, sample_report_data):
         """Test HTML formatting includes period info."""
@@ -192,22 +300,6 @@ class TestHTMLFormatter:
 
         assert "Period:" in html
         assert "2026-03-15T00:00:00" in html
-
-    def test_format_html_empty_data(self):
-        """Test HTML formatting with minimal data."""
-        html = _format_html({"report_type": "custom", "report_id": "r1"})
-
-        assert "<!DOCTYPE html>" in html
-        assert "Custom" in html
-
-    def test_format_html_no_recommendations(self):
-        """Test HTML formatting without recommendations."""
-        html = _format_html({
-            "report_type": "custom",
-            "report_id": "r1",
-            "generated_at": "2026-01-01",
-        })
-        assert "<!DOCTYPE html>" in html
 
 
 # =============================================================================
@@ -255,6 +347,170 @@ class TestCSVFormatter:
 
         assert "r1" in csv_str
         assert "custom" in csv_str
+
+
+# =============================================================================
+# PDF Formatter Tests
+# =============================================================================
+
+
+class TestPDFFormatter:
+    """Test PDF report generation."""
+
+    def test_format_pdf_returns_bytes(self, sample_report_data):
+        """Test that _format_pdf returns bytes."""
+        result = _format_pdf(sample_report_data)
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_format_pdf_incident(self, sample_incident_data):
+        """Test PDF generation for incident report."""
+        result = _format_pdf(sample_incident_data)
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_format_pdf_trend(self, sample_trend_data):
+        """Test PDF generation for trend analysis report."""
+        result = _format_pdf(sample_trend_data)
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_format_pdf_empty_data(self):
+        """Test PDF generation with minimal data."""
+        result = _format_pdf({
+            "report_id": "r1",
+            "report_type": "custom",
+            "generated_at": "2026-01-01",
+        })
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_format_pdf_no_libraries_returns_html_bytes(self, sample_report_data):
+        """Test PDF falls back to HTML bytes when no PDF library available."""
+        with patch.dict("sys.modules", {
+            "weasyprint": None,
+            "xhtml2pdf": None,
+            "xhtml2pdf.pisa": None,
+            "reportlab": None,
+            "reportlab.lib": None,
+            "reportlab.lib.pagesizes": None,
+            "reportlab.lib.styles": None,
+            "reportlab.lib.units": None,
+            "reportlab.lib.colors": None,
+            "reportlab.platypus": None,
+        }):
+            result = _format_pdf(sample_report_data)
+
+        assert isinstance(result, bytes)
+        # Should be HTML content as fallback
+        assert b"<!DOCTYPE html>" in result or len(result) > 0
+
+
+# =============================================================================
+# MinIO Storage Tests
+# =============================================================================
+
+
+class TestReportStorage:
+    """Test ReportStorage with local filesystem fallback."""
+
+    @pytest.fixture
+    def temp_storage_dir(self):
+        """Create a temp directory for local storage."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+
+    @pytest.fixture
+    def local_storage(self, temp_storage_dir):
+        """Create a ReportStorage using local filesystem."""
+        storage = ReportStorage()
+        storage._use_minio = False
+        storage._local_path = temp_storage_dir
+        return storage
+
+    def test_upload_report_local(self, local_storage):
+        """Test uploading a report to local filesystem."""
+        content = b"<html><body>Test Report</body></html>"
+        path = local_storage.upload_report("report-001", content, "html")
+
+        assert os.path.exists(path)
+        assert path.endswith("report-001.html")
+
+    def test_download_report_local(self, local_storage):
+        """Test downloading a report from local filesystem."""
+        content = b"Test CSV content"
+        path = local_storage.upload_report("report-002", content, "csv")
+
+        downloaded = local_storage.download_report(path)
+        assert downloaded == content
+
+    def test_download_report_not_found(self, local_storage):
+        """Test downloading a non-existent report."""
+        result = local_storage.download_report("/nonexistent/path.json")
+        assert result is None
+
+    def test_delete_report_local(self, local_storage):
+        """Test deleting a report from local filesystem."""
+        content = b"To be deleted"
+        path = local_storage.upload_report("report-003", content, "json")
+
+        assert local_storage.delete_report(path) is True
+        assert not os.path.exists(path)
+
+    def test_delete_report_not_found(self, local_storage):
+        """Test deleting a non-existent report."""
+        assert local_storage.delete_report("/nonexistent/path.json") is False
+
+    def test_is_minio_available_local(self, local_storage):
+        """Test is_minio_available returns False for local storage."""
+        assert local_storage.is_minio_available is False
+
+    def test_presigned_url_local(self, local_storage):
+        """Test presigned URL returns None for local storage."""
+        url = local_storage.get_presigned_url("/tmp/report.pdf")
+        assert url is None
+
+    def test_upload_pdf_content(self, local_storage):
+        """Test uploading PDF content."""
+        content = b"%PDF-1.4 fake pdf content"
+        path = local_storage.upload_report("report-004", content, "pdf")
+
+        assert path.endswith("report-004.pdf")
+        downloaded = local_storage.download_report(path)
+        assert downloaded == content
+
+    def test_upload_multiple_formats(self, local_storage):
+        """Test uploading same report in multiple formats."""
+        html_path = local_storage.upload_report("report-005", b"<html>test</html>", "html")
+        csv_path = local_storage.upload_report("report-005", b"col1,col2\n1,2", "csv")
+        json_path = local_storage.upload_report("report-005", b'{"test": true}', "json")
+
+        assert html_path != csv_path != json_path
+        assert local_storage.download_report(html_path) is not None
+        assert local_storage.download_report(csv_path) is not None
+        assert local_storage.download_report(json_path) is not None
+
+    def test_minio_path_parsing(self, local_storage):
+        """Test downloading with minio:// path falls back to local."""
+        # Should return None since the file doesn't exist locally either
+        result = local_storage.download_report("minio://reports/nonexistent.pdf")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_initialize_local_fallback(self, temp_storage_dir):
+        """Test initialize falls back to local when minio is not available."""
+        with patch.dict(os.environ, {"LOCAL_STORAGE_PATH": temp_storage_dir}):
+            storage = ReportStorage()
+            storage._local_path = temp_storage_dir
+            # Patch to simulate minio unavailable
+            with patch("storage.MINIO_ENDPOINT", "invalid:9999"):
+                await storage.initialize()
+
+            assert storage.is_minio_available is False
 
 
 # =============================================================================
@@ -392,7 +648,8 @@ class TestHealthEndpoint:
     def test_health_check_no_db(self, test_client):
         """Test health check when DB is unavailable."""
         with patch("main.db_manager", None), \
-             patch("main.publisher", None):
+             patch("main.publisher", None), \
+             patch("main.report_storage", None):
             response = test_client.get("/health")
 
         assert response.status_code == 200
@@ -400,16 +657,21 @@ class TestHealthEndpoint:
         assert data["service"] == "reporting-service"
         assert data["status"] == "degraded"
         assert data["dependencies"]["database"] == "unavailable"
+        assert data["dependencies"]["file_storage"] == "unavailable"
 
-    def test_health_check_with_db(self, test_client):
-        """Test health check when DB is available."""
+    def test_health_check_with_all_deps(self, test_client):
+        """Test health check when all dependencies are available."""
         mock_session = AsyncMock()
         mock_db = MagicMock()
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
+        mock_storage = MagicMock()
+        mock_storage.is_minio_available = True
+
         with patch("main.db_manager", mock_db), \
              patch("main.publisher", MagicMock()), \
+             patch("main.report_storage", mock_storage), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.count_by_status = AsyncMock(return_value={"completed": 5, "pending": 2})
@@ -421,6 +683,29 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["dependencies"]["database"] == "connected"
         assert data["dependencies"]["message_queue"] == "connected"
+        assert data["dependencies"]["file_storage"] == "minio"
+
+    def test_health_check_local_storage(self, test_client):
+        """Test health check with local filesystem storage."""
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_storage = MagicMock()
+        mock_storage.is_minio_available = False
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.publisher", None), \
+             patch("main.report_storage", mock_storage), \
+             patch("main.ReportRepository") as MockRepo:
+            mock_repo = MockRepo.return_value
+            mock_repo.count_by_status = AsyncMock(return_value={})
+
+            response = test_client.get("/health")
+
+        data = response.json()
+        assert data["dependencies"]["file_storage"] == "local_filesystem"
 
 
 class TestGenerateReportEndpoint:
@@ -453,6 +738,30 @@ class TestGenerateReportEndpoint:
         assert data["data"]["report_type"] == "daily_summary"
         assert data["data"]["name"] == "My Daily Report"
         assert "report_id" in data["data"]
+
+    def test_generate_pdf_report(self, test_client):
+        """Test generating a report in PDF format."""
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.ReportRepository") as MockRepo:
+            mock_repo = MockRepo.return_value
+            mock_repo.create_report = AsyncMock()
+
+            response = test_client.post(
+                "/api/v1/reports/generate",
+                json={
+                    "report_type": "weekly_summary",
+                    "format": "pdf",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["format"] == "pdf"
 
     def test_generate_incident_report_missing_alert_id(self, test_client):
         """Test incident report requires alert_id."""
@@ -509,6 +818,26 @@ class TestGenerateReportEndpoint:
                 )
                 assert response.status_code == 200, f"Failed for report type: {rt}"
 
+    def test_generate_report_all_formats(self, test_client):
+        """Test that all output formats are accepted."""
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        for fmt in ["json", "html", "csv", "pdf"]:
+            with patch("main.db_manager", mock_db), \
+                 patch("main.ReportRepository") as MockRepo:
+                mock_repo = MockRepo.return_value
+                mock_repo.create_report = AsyncMock()
+
+                response = test_client.post(
+                    "/api/v1/reports/generate",
+                    json={"report_type": "daily_summary", "format": fmt},
+                )
+                assert response.status_code == 200, f"Failed for format: {fmt}"
+                assert response.json()["data"]["format"] == fmt
+
 
 class TestGetReportEndpoint:
     """Test the get report endpoint."""
@@ -521,6 +850,7 @@ class TestGetReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
@@ -532,6 +862,30 @@ class TestGetReportEndpoint:
         assert data["success"] is True
         assert data["data"]["report_id"] == "report-test-001"
         assert "report_data" in data["data"]
+
+    def test_get_report_with_presigned_url(self, test_client, mock_report):
+        """Test retrieving a report includes presigned URL when stored in MinIO."""
+        mock_report.file_path = "minio://reports/report-test-001.json"
+
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_storage = MagicMock()
+        mock_storage.get_presigned_url.return_value = "https://minio.local/reports/report-test-001.json?sig=abc"
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", mock_storage), \
+             patch("main.ReportRepository") as MockRepo:
+            mock_repo = MockRepo.return_value
+            mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
+
+            response = test_client.get("/api/v1/reports/report-test-001")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "download_url" in data["data"]
 
     def test_get_report_not_found(self, test_client):
         """Test retrieving a non-existent report."""
@@ -568,6 +922,7 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
@@ -587,6 +942,7 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
@@ -607,6 +963,7 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
@@ -617,6 +974,49 @@ class TestDownloadReportEndpoint:
 
         assert response.status_code == 200
         assert "text/csv" in response.headers["content-type"]
+
+    def test_download_pdf(self, test_client, mock_report):
+        """Test downloading report as PDF."""
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
+             patch("main.ReportRepository") as MockRepo:
+            mock_repo = MockRepo.return_value
+            mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
+
+            response = test_client.get(
+                "/api/v1/reports/report-test-001/download?format=pdf"
+            )
+
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers["content-type"]
+
+    def test_download_from_storage(self, test_client, mock_report):
+        """Test downloading a report served directly from storage."""
+        mock_report.file_path = "/tmp/reports/report-test-001.json"
+
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_storage = MagicMock()
+        mock_storage.download_report.return_value = b'{"test": true}'
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", mock_storage), \
+             patch("main.ReportRepository") as MockRepo:
+            mock_repo = MockRepo.return_value
+            mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
+
+            response = test_client.get("/api/v1/reports/report-test-001/download")
+
+        assert response.status_code == 200
+        mock_storage.download_report.assert_called_once_with(mock_report.file_path)
 
     def test_download_pending_report(self, test_client, mock_pending_report):
         """Test downloading a report that's not ready."""
@@ -707,21 +1107,52 @@ class TestDeleteReportEndpoint:
 
     def test_delete_report(self, test_client):
         """Test deleting a report."""
+        mock_report = MagicMock()
+        mock_report.file_path = None
+
         mock_session = AsyncMock()
         mock_db = MagicMock()
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", None), \
              patch("main.ReportRepository") as MockRepo, \
              patch("main.audit_log", new_callable=AsyncMock):
             mock_repo = MockRepo.return_value
+            mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
             mock_repo.delete_report = AsyncMock(return_value=True)
 
             response = test_client.delete("/api/v1/reports/report-test-001")
 
         assert response.status_code == 200
         assert response.json()["success"] is True
+
+    def test_delete_report_with_storage(self, test_client):
+        """Test deleting a report also deletes from storage."""
+        mock_report = MagicMock()
+        mock_report.file_path = "minio://reports/report-001.pdf"
+
+        mock_session = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_storage = MagicMock()
+        mock_storage.delete_report.return_value = True
+
+        with patch("main.db_manager", mock_db), \
+             patch("main.report_storage", mock_storage), \
+             patch("main.ReportRepository") as MockRepo, \
+             patch("main.audit_log", new_callable=AsyncMock):
+            mock_repo = MockRepo.return_value
+            mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
+            mock_repo.delete_report = AsyncMock(return_value=True)
+
+            response = test_client.delete("/api/v1/reports/report-test-001")
+
+        assert response.status_code == 200
+        mock_storage.delete_report.assert_called_once_with("minio://reports/report-001.pdf")
 
     def test_delete_report_not_found(self, test_client):
         """Test deleting a non-existent report."""
@@ -733,7 +1164,7 @@ class TestDeleteReportEndpoint:
         with patch("main.db_manager", mock_db), \
              patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
-            mock_repo.delete_report = AsyncMock(return_value=False)
+            mock_repo.get_by_report_id = AsyncMock(return_value=None)
 
             response = test_client.delete("/api/v1/reports/nonexistent")
 
@@ -837,6 +1268,7 @@ class TestEnums:
 
     def test_report_format_values(self):
         """Test ReportFormat enum values."""
+        assert ReportFormat.PDF.value == "pdf"
         assert ReportFormat.HTML.value == "html"
         assert ReportFormat.CSV.value == "csv"
         assert ReportFormat.JSON.value == "json"

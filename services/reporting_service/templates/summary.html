@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if summary %}
+<h2>Alert Summary</h2>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="value">{{ summary.total_alerts }}</div>
+        <div class="label">Total Alerts</div>
+    </div>
+    {% if summary.by_severity %}
+    {% for sev, count in summary.by_severity.items() %}
+    <div class="stat-card">
+        <div class="value severity-{{ sev }}">{{ count }}</div>
+        <div class="label">{{ sev | title }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+{% if summary.by_severity %}
+<h2>Alerts by Severity</h2>
+<table>
+    <tr><th>Severity</th><th>Count</th><th>Percentage</th></tr>
+    {% for sev, count in summary.by_severity.items() %}
+    <tr>
+        <td><span class="badge badge-{{ sev }}">{{ sev | upper }}</span></td>
+        <td>{{ count }}</td>
+        <td>{{ "%.1f" | format(count / summary.total_alerts * 100 if summary.total_alerts > 0 else 0) }}%</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+{% if summary.by_status %}
+<h2>Alerts by Status</h2>
+<table>
+    <tr><th>Status</th><th>Count</th></tr>
+    {% for status, count in summary.by_status.items() %}
+    <tr>
+        <td>{{ status | title }}</td>
+        <td>{{ count }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+{% if summary.by_type %}
+<h2>Alerts by Type</h2>
+<table>
+    <tr><th>Alert Type</th><th>Count</th></tr>
+    {% for atype, count in summary.by_type.items() %}
+    <tr>
+        <td>{{ atype | replace("_", " ") | title }}</td>
+        <td>{{ count }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}
