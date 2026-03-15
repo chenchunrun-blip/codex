@@ -16,14 +16,6 @@ redis[hiredis]>=4.6.0
 # Message Queue
 aio-pika>=9.3.0
 
-# PDF generation (optional)
-# reportlab>=4.0.0
-# weasyprint>=60.0
-
-# HTML processing
-# jinja2>=3.1.0
-# beautifulsoup4>=4.12.0
-
 # Logging
 loguru>=0.7.0
 
@@ -39,3 +31,4 @@ python-dateutil>=2.8.2
 # Development
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+httpx>=0.25.0
