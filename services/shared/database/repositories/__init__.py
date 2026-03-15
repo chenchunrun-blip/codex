@@ -18,6 +18,7 @@ from .alert_repository import AlertRepository
 from .base import BaseRepository
 from .settings_repository import SettingsRepository
 from .triage_repository import TriageRepository
+from .user_repository import UserRepository
 from .workflow_repository import WorkflowRepository
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "AlertRepository",
     "TriageRepository",
     "SettingsRepository",
+    "UserRepository",
     "WorkflowRepository",
 ]
