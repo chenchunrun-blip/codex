@@ -1,0 +1,146 @@
+# Development Docker Compose Configuration
+# Usage: docker compose -f docker-compose.dev.yml up
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: marqdex-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marqdex
+      POSTGRES_PASSWORD: marqdex_dev_secret
+      POSTGRES_DB: marqdex
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marqdex -d marqdex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marqdex-dev-network
+
+  # pgAdmin (optional database management UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: marqdex-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@marqdex.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_LISTEN_PORT: 5050
+    ports:
+      - "5050:5050"
+    depends_on:
+      - postgres
+    networks:
+      - marqdex-dev-network
+    profiles:
+      - admin
+
+  # Next.js Development Server with Hot Reload
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: marqdex-dev-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://marqdex:marqdex_dev_secret@postgres:5432/marqdex?schema=public
+
+      # NextAuth
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev_secret_key_change_in_production_32chars
+
+      # Encryption
+      ENCRYPTION_KEY: dev_encryption_key_32_characters
+
+      # App Config
+      APP_NAME: MarqDex Dev
+      APP_URL: http://localhost:3000
+      NODE_ENV: development
+
+      # Watchpack polling for hot reload in Docker
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "8000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./app:/app/app:delegated
+      - ./components:/app/components:delegated
+      - ./lib:/app/lib:delegated
+      - ./prisma:/app/prisma:delegated
+      - ./public:/app/public:delegated
+      - ./styles:/app/styles:delegated
+      # Don't overwrite node_modules
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - marqdex-dev-network
+
+  # MCP SSE Server for external agent connections
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: marqdex-dev-mcp-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://marqdex:marqdex_dev_secret@postgres:5432/marqdex?schema=public
+
+      # Encryption
+      ENCRYPTION_KEY: dev_encryption_key_32_characters
+
+      # App Config
+      NODE_ENV: development
+
+      # MCP Server Config
+      MCP_SERVER_PORT: 3002
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./mcp-server:/app/mcp-server:delegated
+      - ./lib:/app/lib:delegated
+      - ./prisma:/app/prisma:delegated
+      - ./node_modules:/app/node_modules
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./.env:/app/.env
+    command: ["sh", "/app/mcp-server/start.sh"]
+    networks:
+      - marqdex-dev-network
+
+  # Redis (optional, for caching and sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: marqdex-dev-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - marqdex-dev-network
+    profiles:
+      - cache
+
+networks:
+  marqdex-dev-network:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

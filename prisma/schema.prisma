@@ -1,0 +1,519 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String          @id @default(cuid())
+  email              String          @unique
+  emailVerified      Boolean         @default(false)
+  name               String?
+  nickname           String?
+  avatar             String?
+  password           String?
+  emailEnabled       Boolean         @default(true)
+  openaiApiKey       String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  lastLoginAt        DateTime?
+  aiApiEndpoint      String?
+  aiModel            String?         @default("gpt-3.5-turbo")
+  accounts           Account[]
+  activities         ActivityLog[]
+  comments           Comment[]
+  createdFiles       File[]          @relation("FileCreator")
+  fileVersions       FileVersion[]
+  mentions           Mention[]
+  notifications      Notification[]
+  createdProjects    Project[]       @relation("ProjectCreator")
+  projectMemberships ProjectMember[]
+  sessions           Session[]
+  createdTeams       Team[]          @relation("TeamCreator")
+  teamMemberships    TeamMember[]
+  createdTemplates   Template[]      @relation("TemplateCreator")
+  assignedTasks      Task[]          @relation("TaskAssignee")
+  createdTasks       Task[]          @relation("TaskCreator")
+  taskAssignmentLogs TaskAssignmentLog[] @relation("TaskAssignmentActor")
+  reviewedDeliverables Deliverable[]  @relation("DeliverableReviewer")
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  avatar      String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  creatorId   String
+  projects    Project[]
+  creator     User         @relation("TeamCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+
+  @@index([creatorId])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  userId   String
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus   @default(ACTIVE)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  creatorId   String
+  teamId      String
+  activities  ActivityLog[]
+  files       File[]
+  creator     User            @relation("ProjectCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  team        Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  members     ProjectMember[]
+  tasks       Task[]
+
+  @@index([teamId])
+  @@index([creatorId])
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(VIEWER)
+  joinedAt  DateTime    @default(now())
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model File {
+  id           String        @id @default(cuid())
+  name         String
+  content      String
+  fileType     FileTypeEnum
+  status       FileStatus    @default(DRAFT)
+  projectName  String?
+  templateType String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  lastAutoSave DateTime?
+  creatorId    String
+  projectId    String
+  storageId    String        @unique
+  activities   ActivityLog[]
+  comments     Comment[]
+  creator      User          @relation("FileCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions     FileVersion[]
+  deliverables Deliverable[]
+
+  @@index([projectId])
+  @@index([creatorId])
+  @@index([fileType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model FileVersion {
+  id            String   @id @default(cuid())
+  fileId        String
+  versionNumber Int
+  content       String
+  changeLog     String?
+  createdAt     DateTime @default(now())
+  creatorId     String
+  creator       User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  file          File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, versionNumber])
+  @@index([fileId])
+  @@index([createdAt])
+}
+
+model Comment {
+  id         String    @id @default(cuid())
+  fileId     String
+  content    String
+  lineStart  Int?
+  lineEnd    Int?
+  isResolved Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  authorId   String
+  parentId   String?
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  file       File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Comment[] @relation("CommentReplies")
+  mentions   Mention[]
+
+  @@index([fileId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@index([parentId])
+}
+
+model Mention {
+  id        String    @id @default(cuid())
+  commentId String
+  userId    String
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  comment   Comment   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@index([isRead])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  content   String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id        String     @id @default(cuid())
+  projectId String?
+  fileId    String?
+  taskId    String?
+  userId    String
+  action    ActionType
+  metadata  Json?
+  createdAt DateTime   @default(now())
+  file      File?      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([fileId])
+  @@index([taskId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Template {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  category    TemplateCategory
+  content     String
+  isBuiltIn   Boolean          @default(false)
+  isPublic    Boolean          @default(true)
+  aiPrompt    String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  creatorId   String?
+  creator     User?            @relation("TemplateCreator", fields: [creatorId], references: [id])
+
+  @@index([category])
+  @@index([isBuiltIn])
+}
+
+enum TeamRole {
+  ADMIN
+  MEMBER
+}
+
+enum ProjectRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum FileTypeEnum {
+  PROBLEM_DEFINITION
+  SOLUTION_DESIGN
+  EXECUTION_TRACKING
+  RETROSPECTIVE_SUMMARY
+  CUSTOM
+}
+
+enum FileStatus {
+  DRAFT
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+}
+
+enum NotificationType {
+  MENTION
+  COMMENT_REPLY
+  FILE_CHANGED
+  TASK_DEADLINE
+  PROJECT_UPDATED
+  TEAM_INVITATION
+  TASK_ASSIGNED
+  TASK_UPDATED
+  DELIVERABLE_READY
+}
+
+enum ActionType {
+  FILE_CREATED
+  FILE_UPDATED
+  FILE_DELETED
+  FILE_RESTORED
+  COMMENT_ADDED
+  COMMENT_RESOLVED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_ARCHIVED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_COMPLETED
+  TASK_ASSIGNED
+  TASK_STATUS_CHANGED
+  DELIVERABLE_SUBMITTED
+  DELIVERABLE_APPROVED
+  DELIVERABLE_REJECTED
+}
+
+enum TemplateCategory {
+  PROBLEM_DEFINITION
+  SOLUTION_DESIGN
+  EXECUTION_TRACKING
+  RETROSPECTIVE_SUMMARY
+  CUSTOM
+}
+
+// ============ Task Management ============
+
+model Task {
+  id            String        @id @default(cuid())
+  title         String
+  description   String?       @db.Text
+  specMarkdown  String?       @db.Text
+  specValidationStatus SpecValidationStatus @default(PENDING)
+  specValidationErrors Json?
+  status        TaskStatus    @default(PENDING)
+  priority      Int           @default(2) // 0=low, 1=medium, 2=high
+  projectId     String
+  creatorId     String?
+  assignmentMode AssignmentMode @default(MANUAL)
+  assigneeType  AssigneeType  @default(HUMAN)
+  assigneeId    String?
+  agentId       String?
+  functionalAgentType FunctionalAgentType?
+  claimedAt     DateTime?
+  dueDate       DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator       User?         @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  assignee      User?         @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  agent         Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  deliverables  Deliverable[]
+  activities    ActivityLog[]
+  assignmentLogs TaskAssignmentLog[] @relation("TaskAssignmentHistory")
+
+  @@index([projectId])
+  @@index([status])
+  @@index([specValidationStatus])
+  @@index([creatorId])
+  @@index([assignmentMode])
+  @@index([assigneeType, assigneeId])
+  @@index([functionalAgentType])
+  @@index([claimedAt])
+  @@index([agentId])
+}
+
+model TaskAssignmentLog {
+  id             String               @id @default(cuid())
+  taskId         String
+  action         TaskAssignmentAction
+  actorUserId    String
+  fromType       AssigneeType?
+  fromAssigneeId String?
+  fromAgentId    String?
+  toType         AssigneeType?
+  toAssigneeId   String?
+  toAgentId      String?
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+
+  task           Task                 @relation("TaskAssignmentHistory", fields: [taskId], references: [id], onDelete: Cascade)
+  actor          User                 @relation("TaskAssignmentActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([actorUserId])
+}
+
+model Agent {
+  id              String     @id @default(cuid())
+  name            String     @unique
+  displayName     String
+  description     String?
+  type            AgentType  @default(AI)
+  capabilities    Json?
+  apiKeyEncrypted String?
+  apiEndpoint     String?
+  modelConfig     Json?
+  systemPrompt    String?    @db.Text
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  tasks           Task[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model Deliverable {
+  id          String             @id @default(cuid())
+  taskId      String
+  fileId      String?
+  name        String
+  type        String
+  content     String             @db.Text
+  status      DeliverableStatus  @default(DRAFT)
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  task        Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  file        File?              @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  reviewer    User?              @relation("DeliverableReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([fileId])
+  @@index([status])
+}
+
+// Task Management Enums
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum SpecValidationStatus {
+  PENDING
+  VALID
+  INVALID
+}
+
+enum AssignmentMode {
+  MANUAL
+  AI_SUGGESTED
+  AI_AUTO
+}
+
+enum AssigneeType {
+  HUMAN
+  AGENT
+  FUNCTIONAL_AGENT
+}
+
+enum FunctionalAgentType {
+  PRODUCT
+  ENGINEERING
+  QA
+  DESIGN
+  OPERATIONS
+}
+
+enum AgentType {
+  AI
+  AUTOMATION
+}
+
+enum TaskAssignmentAction {
+  SUGGESTED
+  ASSIGNED
+  CLAIMED
+  UNCLAIMED
+  REASSIGNED
+}
+
+enum DeliverableStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}

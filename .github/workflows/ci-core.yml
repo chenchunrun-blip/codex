@@ -1,0 +1,126 @@
+name: CI Core
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+jobs:
+  verify-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: markdown_user
+          POSTGRES_PASSWORD: markdown_password_123
+          POSTGRES_DB: markdown_collab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U markdown_user -d markdown_collab"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://markdown_user:markdown_password_123@localhost:5432/markdown_collab?schema=public
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: test-nextauth-secret-for-ci
+      ENCRYPTION_KEY: 12345678901234567890123456789012
+      APP_URL: http://localhost:3000
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify core quality gate
+        run: npm run verify:core
+
+  verify-extended:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: verify-core
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: markdown_user
+          POSTGRES_PASSWORD: markdown_password_123
+          POSTGRES_DB: markdown_collab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U markdown_user -d markdown_collab"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://markdown_user:markdown_password_123@localhost:5432/markdown_collab?schema=public
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: test-nextauth-secret-for-ci
+      ENCRYPTION_KEY: 12345678901234567890123456789012
+      APP_URL: http://localhost:3000
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Mainline-first sequence mirrors local `npm run verify:mainline`
+      # and keeps each workflow branch visible in CI logs.
+      - name: Mainline · Workspace E2E
+        run: npm run test:e2e:workspace
+
+      - name: Mainline · Team Rollout E2E
+        run: npm run test:e2e:team
+
+      - name: Mainline · Review Queue E2E
+        run: npm run test:e2e:review
+
+      - name: Mainline · Collaboration Core E2E
+        run: npx playwright test --reporter=line e2e/collab-core-flow.spec.ts
