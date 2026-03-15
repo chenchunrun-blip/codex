@@ -61,6 +61,7 @@ workflow_definitions: Dict[str, WorkflowDefinition] = {}
 # Recent alerts cache for correlation (bounded ring buffer)
 recent_alerts_cache: List[Dict[str, Any]] = []
 MAX_RECENT_ALERTS = 200
+_cache_lock = asyncio.Lock()
 metrics = MetricsCollector("workflow_engine")
 
 # Load default workflow definitions
@@ -195,7 +196,7 @@ async def execute_workflow_step(
 
             # --- Built-in correlation activity ---------------------------------
             if service == "correlation":
-                correlation_result = _run_correlation(execution.input)
+                correlation_result = await _run_correlation(execution.input)
                 execution.input["correlation"] = correlation_result
 
                 # Auto-escalate when attack chains are detected
@@ -563,11 +564,16 @@ async def cancel_execution(execution_id: str):
 # Correlation helpers
 # ---------------------------------------------------------------------------
 
-def _run_correlation(input_data: Dict[str, Any]) -> Dict[str, Any]:
+async def _run_correlation(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """Run correlation analysis on the current alert against recent cache."""
     alert = input_data.get("alert") or input_data
     metrics.inc(CORRELATIONS_PERFORMED)
-    result = CorrelationEngine.correlate(alert, recent_alerts_cache)
+
+    async with _cache_lock:
+        # Snapshot cache under lock, then release for CPU-bound correlation
+        cache_snapshot = list(recent_alerts_cache)
+
+    result = CorrelationEngine.correlate(alert, cache_snapshot)
 
     chains = result.get("attack_chains", [])
     if chains:
@@ -575,10 +581,11 @@ def _run_correlation(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Cache this alert for future correlations
     if alert.get("alert_id"):
-        recent_alerts_cache.append(alert)
-        # Trim to bounded size
-        while len(recent_alerts_cache) > MAX_RECENT_ALERTS:
-            recent_alerts_cache.pop(0)
+        async with _cache_lock:
+            recent_alerts_cache.append(alert)
+            # Trim to bounded size
+            while len(recent_alerts_cache) > MAX_RECENT_ALERTS:
+                recent_alerts_cache.pop(0)
 
     return result
 
@@ -614,7 +621,10 @@ async def correlate_alert(alert_data: Dict[str, Any]):
     and impact analysis against recently cached alerts.
     """
     try:
-        result = _run_correlation(alert_data)
+        if not alert_data.get("alert_id"):
+            raise HTTPException(status_code=400, detail="Missing required field: alert_id")
+
+        result = await _run_correlation(alert_data)
 
         return {
             "success": True,

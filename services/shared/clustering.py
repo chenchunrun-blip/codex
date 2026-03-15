@@ -21,7 +21,7 @@ to PostgreSQL via the shared database layer.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from shared.models.alert import AlertType, SecurityAlert, Severity
@@ -135,13 +135,24 @@ class AlertClusteringEngine:
     Results are stored in-memory but can be persisted to the database.
     """
 
-    def __init__(self, similarity_threshold: float = 0.65):
+    # Max age for clusters before they are eligible for eviction
+    DEFAULT_CLUSTER_TTL_HOURS = 24
+    # Max number of clusters before forced eviction
+    MAX_CLUSTERS = 5000
+
+    def __init__(
+        self,
+        similarity_threshold: float = 0.65,
+        cluster_ttl_hours: int = DEFAULT_CLUSTER_TTL_HOURS,
+    ):
         self.similarity_threshold = similarity_threshold
+        self.cluster_ttl = timedelta(hours=cluster_ttl_hours)
         self.clusters: Dict[str, AlertCluster] = {}
         self.alert_to_cluster: Dict[str, str] = {}
         # Metrics
         self.total_clustered = 0
         self.total_new_clusters = 0
+        self.total_evicted = 0
 
     def find_or_create_cluster(
         self,
@@ -163,6 +174,10 @@ class AlertClusteringEngine:
             AlertCluster if the alert was clustered, else None.
         """
         alert_id = alert.get("alert_id", "")
+
+        # Periodic eviction: check every 100 clusters
+        if len(self.clusters) > 0 and len(self.clusters) % 100 == 0:
+            self.evict_expired_clusters()
 
         # Already clustered?
         if alert_id in self.alert_to_cluster:
@@ -241,9 +256,47 @@ class AlertClusteringEngine:
         cid = self.alert_to_cluster.get(alert_id)
         return self.clusters.get(cid) if cid else None
 
+    def evict_expired_clusters(self) -> int:
+        """Remove clusters that haven't been updated within the TTL.
+
+        Returns:
+            Number of clusters evicted.
+        """
+        now = datetime.utcnow()
+        expired_ids = [
+            cid for cid, cluster in self.clusters.items()
+            if (now - cluster.last_updated) > self.cluster_ttl
+        ]
+
+        # If still over capacity after TTL eviction, evict oldest first
+        if len(self.clusters) - len(expired_ids) > self.MAX_CLUSTERS:
+            remaining = [
+                (cid, c) for cid, c in self.clusters.items()
+                if cid not in expired_ids
+            ]
+            remaining.sort(key=lambda x: x[1].last_updated)
+            overage = len(remaining) - self.MAX_CLUSTERS
+            if overage > 0:
+                expired_ids.extend(cid for cid, _ in remaining[:overage])
+
+        for cid in expired_ids:
+            cluster = self.clusters.pop(cid, None)
+            if cluster:
+                # Clean up alert-to-cluster mappings
+                self.alert_to_cluster.pop(cluster.primary_alert_id, None)
+                for aid in cluster.related_alert_ids:
+                    self.alert_to_cluster.pop(aid, None)
+
+        if expired_ids:
+            self.total_evicted += len(expired_ids)
+            logger.info(f"Evicted {len(expired_ids)} expired clusters")
+
+        return len(expired_ids)
+
     def get_stats(self) -> Dict[str, Any]:
         return {
             "total_clusters": len(self.clusters),
             "total_alerts_clustered": self.total_clustered,
             "new_clusters_created": self.total_new_clusters,
+            "total_evicted": self.total_evicted,
         }
