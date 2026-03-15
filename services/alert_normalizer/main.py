@@ -22,6 +22,7 @@ to a standard format, extracts IOCs, and publishes normalized alerts.
 import asyncio
 import hashlib
 import os
+import re
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager

@@ -127,7 +127,7 @@ def alert_to_text(alert: SecurityAlert) -> str:
     if alert.url:
         parts.append(f"URL: {alert.url}")
 
-    if alert.process_name:
+    if getattr(alert, "process_name", None):
         parts.append(f"Process: {alert.process_name}")
 
     return ". ".join(parts)

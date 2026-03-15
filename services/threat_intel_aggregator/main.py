@@ -172,7 +172,7 @@ class VirusTotalSource(ThreatIntelSource):
         """Parse VirusTotal IP response."""
         return {
             "source": "VirusTotal",
-            "detected": data.get("detected_urls", []) > 0,
+            "detected": len(data.get("detected_urls", [])) > 0,
             "positives": len(data.get("detected_urls", [])),
             "country": data.get("country"),
             "as_owner": data.get("as_owner"),

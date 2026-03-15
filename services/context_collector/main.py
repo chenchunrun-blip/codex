@@ -179,10 +179,10 @@ def get_subnet(ip: str) -> Optional[str]:
         # Determine subnet based on IP class
         if ip_obj in ipaddress.ip_network("10.0.0.0/8"):
             # Class A private: /8
-            return f"{ip_obj.network_address}/8"
+            return "10.0.0.0/8"
         elif ip_obj in ipaddress.ip_network("172.16.0.0/12"):
             # Class B private: /12
-            return f"{ip_obj.network_address}/12"
+            return "172.16.0.0/12"
         elif ip_obj in ipaddress.ip_network("192.168.0.0/16"):
             # Class C private: /24 (typical)
             return f"{'.'.join(ip.split('.')[:3])}.0/24"
