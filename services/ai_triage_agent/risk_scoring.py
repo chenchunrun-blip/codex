@@ -163,7 +163,12 @@ class RiskScoringEngine:
             result = {
                 "risk_score": final_score,
                 "risk_level": risk_level,
-                "confidence": self._calculate_confidence(threat_intel, historical_data),
+                "confidence": self._calculate_confidence(
+                    threat_intel, historical_data,
+                    network_context=network_context,
+                    asset_context=asset_context,
+                    user_context=user_context,
+                ),
                 "requires_human_review": requires_review,
                 "breakdown": {
                     "severity": {
@@ -296,27 +301,117 @@ class RiskScoringEngine:
         self,
         threat_intel: Optional[Dict],
         historical_data: Optional[Dict],
+        network_context: Optional[Dict] = None,
+        asset_context: Optional[Dict] = None,
+        user_context: Optional[Dict] = None,
     ) -> float:
-        """Calculate confidence in risk assessment."""
-        confidence = 0.5  # Base confidence
+        """
+        Calculate dynamic confidence in risk assessment.
 
-        # Increase confidence with threat intel
+        Confidence is based on:
+        - Number and quality of threat intel sources queried
+        - Historical data availability and match strength
+        - Context enrichment completeness
+        - Data freshness and source reliability
+
+        Args:
+            threat_intel: Threat intelligence data
+            historical_data: Historical alert data
+            network_context: Network enrichment context
+            asset_context: Asset enrichment context
+            user_context: User enrichment context
+
+        Returns:
+            Confidence score between 0.0 and 1.0
+        """
+        confidence = 0.3  # Base confidence (lower than before to be more dynamic)
+        factors = []
+
+        # --- Threat intelligence contribution (up to +0.30) ---
         if threat_intel:
             sources_count = len(threat_intel.get("queried_sources", []))
-            if sources_count >= 3:
-                confidence += 0.3
-            elif sources_count >= 1:
-                confidence += 0.15
+            detection_count = sum(
+                1 for ind in threat_intel.get("indicators", [])
+                if isinstance(ind, dict) and ind.get("detected")
+            )
+            aggregate_score = threat_intel.get("aggregate_score", 0)
 
-        # Increase confidence with historical data
+            # More sources = more confidence
+            source_bonus = min(0.15, sources_count * 0.05)
+            confidence += source_bonus
+            factors.append(f"sources:{sources_count}(+{source_bonus:.2f})")
+
+            # Detections increase confidence
+            if detection_count > 0:
+                detection_bonus = min(0.10, detection_count * 0.03)
+                confidence += detection_bonus
+                factors.append(f"detections:{detection_count}(+{detection_bonus:.2f})")
+
+            # High aggregate score increases confidence
+            if aggregate_score > 80:
+                confidence += 0.05
+                factors.append("high_aggregate(+0.05)")
+
+        # --- Historical data contribution (up to +0.20) ---
         if historical_data:
-            similar_count = len(historical_data.get("similar_alerts", []))
-            if similar_count >= 3:
-                confidence += 0.2
-            elif similar_count >= 1:
-                confidence += 0.1
+            similar_alerts = historical_data.get("similar_alerts", [])
+            similar_count = len(similar_alerts)
+            avg_similarity = historical_data.get("avg_similarity", 0)
 
-        return min(1.0, confidence)
+            if similar_count >= 5:
+                confidence += 0.15
+                factors.append(f"history:{similar_count}(+0.15)")
+            elif similar_count >= 2:
+                confidence += 0.10
+                factors.append(f"history:{similar_count}(+0.10)")
+            elif similar_count >= 1:
+                confidence += 0.05
+                factors.append(f"history:{similar_count}(+0.05)")
+
+            # High similarity score boosts confidence
+            if avg_similarity > 0.8:
+                confidence += 0.05
+                factors.append(f"similarity:{avg_similarity:.2f}(+0.05)")
+
+        # --- Context enrichment completeness (up to +0.20) ---
+        context_count = 0
+        if network_context and network_context.get("reputation"):
+            context_count += 1
+            rep_score = network_context.get("reputation", {}).get("score")
+            if rep_score is not None and not network_context.get("reputation", {}).get("_mock"):
+                confidence += 0.05
+                factors.append("net_reputation(+0.05)")
+
+        if network_context and network_context.get("geolocation"):
+            geo = network_context["geolocation"]
+            if geo.get("country") and geo["country"] != "Unknown":
+                context_count += 1
+                confidence += 0.03
+                factors.append("geolocation(+0.03)")
+
+        if asset_context and asset_context.get("criticality"):
+            context_count += 1
+            confidence += 0.04
+            factors.append("asset_info(+0.04)")
+
+        if user_context and user_context.get("username"):
+            context_count += 1
+            confidence += 0.03
+            factors.append("user_info(+0.03)")
+
+        # Bonus for having all context types
+        if context_count >= 3:
+            confidence += 0.05
+            factors.append("full_context(+0.05)")
+
+        final_confidence = min(1.0, max(0.1, confidence))
+
+        logger.debug(
+            f"Confidence calculated: {final_confidence:.2f}",
+            extra={"factors": factors, "raw_confidence": confidence},
+        )
+
+        return final_confidence
 
     def _get_risk_level(self, score: int) -> str:
         """Convert numeric score to risk level."""
