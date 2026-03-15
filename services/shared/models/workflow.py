@@ -230,6 +230,7 @@ class PlaybookAction(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict, description="Action parameters")
     timeout_seconds: int = Field(default=300, ge=0, description="Action timeout")
     retry_policy: dict[str, Any] = Field(default_factory=dict, description="Retry policy")
+    rollback_action: Optional[str] = Field(default=None, description="Rollback action ID if this action needs to be undone")
 
     # Conditions
     conditions: list[dict[str, Any]] = Field(
@@ -279,6 +280,9 @@ class AutomationPlaybook(BaseModel):
     # Configuration
     approval_required: bool = Field(default=False, description="Whether approval is required")
     timeout_seconds: int = Field(default=3600, ge=0, description="Total timeout")
+
+    # Rollback
+    rollback_actions: list[str] = Field(default_factory=list, description="List of rollback action IDs")
 
     # Triggers
     trigger_conditions: dict[str, Any] = Field(
@@ -353,6 +357,9 @@ class PlaybookExecution(BaseModel):
         default_factory=datetime.utcnow, description="Execution start time"
     )
     completed_at: Optional[datetime] = Field(default=None, description="Execution completion time")
+
+    # Input
+    input_data: dict[str, Any] = Field(default_factory=dict, description="Input data and context variables")
 
     # Error handling
     error: Optional[str] = Field(default=None, description="Error message if failed")

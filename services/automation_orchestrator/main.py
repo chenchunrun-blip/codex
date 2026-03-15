@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from shared.database import DatabaseManager, get_database_manager
+from shared.database.models import AuditLog
+from shared.database.repositories.workflow_repository import WorkflowRepository
 from shared.errors import AutomationError
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import (
@@ -43,7 +45,7 @@ db_manager: DatabaseManager = None
 publisher: MessagePublisher = None
 consumer: MessageConsumer = None
 
-# In-memory storage (use database in production)
+# In-memory cache (backed by database)
 active_executions: Dict[str, PlaybookExecution] = {}
 playbooks: Dict[str, AutomationPlaybook] = {}
 
@@ -66,6 +68,7 @@ DEFAULT_PLAYBOOKS = {
                     "timeout": 30,
                 },
                 timeout_seconds=60,
+                rollback_action="remove_firewall_rule",
             ),
             PlaybookAction(
                 action_id="quarantine-file",
@@ -74,6 +77,7 @@ DEFAULT_PLAYBOOKS = {
                 description="Quarantine detected malicious file via EDR",
                 parameters={"file_hash": "{file_hash}", "action": "quarantine"},
                 timeout_seconds=120,
+                rollback_action="restore_file",
             ),
             PlaybookAction(
                 action_id="create-ticket",
@@ -105,6 +109,7 @@ DEFAULT_PLAYBOOKS = {
                 description="Block email sender at mail gateway",
                 parameters={"action": "block_sender", "sender_address": "{sender_email}"},
                 timeout_seconds=60,
+                rollback_action="unblock_sender",
             ),
             PlaybookAction(
                 action_id="delete-emails",
@@ -126,7 +131,137 @@ DEFAULT_PLAYBOOKS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+
+
+async def audit_log(
+    event_type: str,
+    action: str,
+    target_type: str = "playbook",
+    target_id: Optional[str] = None,
+    actor_id: str = "system",
+    details: Optional[Dict[str, Any]] = None,
+    old_values: Optional[Dict[str, Any]] = None,
+    new_values: Optional[Dict[str, Any]] = None,
+    status: str = "success",
+    error_message: Optional[str] = None,
+) -> None:
+    """Record an audit log entry for an automation action."""
+    if not db_manager:
+        logger.debug(f"Audit log (no db): {event_type} {action} {target_type}:{target_id}")
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            log_entry = AuditLog(
+                event_type=event_type,
+                event_category="automation",
+                action=action,
+                actor_id=actor_id,
+                actor_type="system",
+                target_type=target_type,
+                target_id=target_id,
+                details=details,
+                old_values=old_values,
+                new_values=new_values,
+                status=status,
+                error_message=error_message,
+            )
+            session.add(log_entry)
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write audit log: {e}")
+
+
+# ---------------------------------------------------------------------------
+# DB persistence helpers
+# ---------------------------------------------------------------------------
+
+
+async def persist_execution_start(execution: PlaybookExecution) -> None:
+    """Persist a new execution record to the database."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            await repo.create_workflow_execution(
+                execution_id=execution.execution_id,
+                workflow_id=execution.playbook_id,
+                trigger_type="automation",
+                trigger_reference=execution.trigger_alert_id,
+                executed_by="system",
+            )
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist execution to DB: {e}")
+
+
+async def persist_execution_update(execution: PlaybookExecution) -> None:
+    """Update execution record in the database."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            duration = None
+            if execution.completed_at and execution.started_at:
+                duration = int((execution.completed_at - execution.started_at).total_seconds())
+            await repo.update_workflow_execution(
+                execution_id=execution.execution_id,
+                status=execution.status.value,
+                completed_at=execution.completed_at,
+                duration_seconds=duration,
+                steps_execution={"results": execution.results},
+                result=json.dumps(execution.results[-1]) if execution.results else None,
+                error_message=execution.error,
+            )
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update execution in DB: {e}")
+
+
+async def persist_playbook(playbook: AutomationPlaybook) -> None:
+    """Save a playbook definition to the database."""
+    if not db_manager:
+        return
+    try:
+        async with db_manager.get_session() as session:
+            repo = WorkflowRepository(session)
+            existing = await repo.get_workflow(playbook.playbook_id)
+            if existing:
+                await repo.update_workflow(
+                    playbook.playbook_id,
+                    name=playbook.name,
+                    description=playbook.description,
+                    steps=[a.model_dump() for a in playbook.actions],
+                    trigger_conditions=playbook.trigger_conditions,
+                )
+            else:
+                await repo.create_workflow(
+                    workflow_id=playbook.playbook_id,
+                    name=playbook.name,
+                    description=playbook.description,
+                    category="automation",
+                    steps=[a.model_dump() for a in playbook.actions],
+                    trigger_type="alert_created",
+                    trigger_conditions=playbook.trigger_conditions,
+                    status="active",
+                    priority="high",
+                    created_by="system",
+                )
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist playbook to DB: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Action executors
+# ---------------------------------------------------------------------------
+
+
 class ActionExecutor:
     """Base class for action executors."""
 
@@ -139,29 +274,18 @@ class SSHCommandExecutor(ActionExecutor):
     """Execute SSH commands on remote hosts."""
 
     async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute SSH command.
-
-        TODO: Implement actual SSH execution using asyncssh or paramiko.
-        For now, return mock result.
-        """
+        """Execute SSH command (mock - replace with asyncssh in production)."""
         try:
-            # Extract parameters
             command_template = action.parameters.get("command_template", "")
             target_host = action.parameters.get("target_host", "")
 
-            # Fill template with context
-            command = command_template.format(**context)
-            target = target_host.format(**context)
+            command = command_template.format(**context) if command_template else ""
+            target = target_host.format(**context) if target_host else ""
 
             logger.info(f"Executing SSH command on {target}: {command}")
 
-            # TODO: Implement actual SSH execution
-            # import asyncssh
-            # result = await asyncssh.run(command, host=target)
-
-            # Mock result
-            await asyncio.sleep(1)  # Simulate execution
+            # TODO: Implement actual SSH execution with asyncssh
+            await asyncio.sleep(0.5)
 
             return {
                 "status": "success",
@@ -178,21 +302,17 @@ class EDRCommandExecutor(ActionExecutor):
     """Execute commands via EDR (Endpoint Detection and Response)."""
 
     async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute EDR command.
-
-        TODO: Implement actual EDR API integration.
-        """
+        """Execute EDR command (mock - replace with real EDR API in production)."""
         try:
-            file_hash = action.parameters.get("file_hash", "").format(**context)
+            raw_hash = action.parameters.get("file_hash", "")
+            file_hash = raw_hash.format(**context) if isinstance(raw_hash, str) else raw_hash
             edr_action = action.parameters.get("action", "quarantine")
 
             logger.info(f"Executing EDR action: {edr_action} for file {file_hash}")
 
-            # TODO: Implement actual EDR API call
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
-            return {"status": "success", "output": f"File {file_hash} quarantined successfully"}
+            return {"status": "success", "output": f"File {file_hash} {edr_action}d successfully"}
 
         except Exception as e:
             logger.error(f"EDR command execution failed: {e}", exc_info=True)
@@ -203,19 +323,15 @@ class EmailCommandExecutor(ActionExecutor):
     """Execute email gateway commands."""
 
     async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute email gateway command.
-
-        TODO: Implement actual email gateway API integration.
-        """
+        """Execute email gateway command (mock - replace with real API in production)."""
         try:
             email_action = action.parameters.get("action", "")
-            sender = action.parameters.get("sender_address", "").format(**context)
+            raw_sender = action.parameters.get("sender_address", "")
+            sender = raw_sender.format(**context) if isinstance(raw_sender, str) else raw_sender
 
             logger.info(f"Executing email gateway action: {email_action} for sender {sender}")
 
-            # TODO: Implement actual email gateway API call
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
             return {
                 "status": "success",
@@ -238,7 +354,6 @@ class APICallExecutor(ActionExecutor):
             endpoint = action.parameters.get("endpoint", "").format(**context)
             method = action.parameters.get("method", "POST").upper()
 
-            # Build request
             url = f"{context.get('base_url', '')}/{endpoint}"
             headers = action.parameters.get("headers", {})
             body = {
@@ -273,29 +388,104 @@ class APICallExecutor(ActionExecutor):
             return {"status": "failed", "error": str(e)}
 
 
+class NotificationExecutor(ActionExecutor):
+    """Execute notification actions (mock - replace with real notification service)."""
+
+    async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            channels = action.parameters.get("channels", [])
+            recipients = action.parameters.get("recipients", [])
+            raw_msg = action.parameters.get("message", "")
+            message = raw_msg.format(**context) if isinstance(raw_msg, str) else str(raw_msg)
+
+            logger.info(f"Sending notification to {recipients} via {channels}")
+            await asyncio.sleep(0.3)
+
+            return {
+                "status": "success",
+                "output": f"Notification sent to {len(recipients)} recipients via {channels}",
+            }
+        except Exception as e:
+            logger.error(f"Notification failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
+
+class FirewallRuleExecutor(ActionExecutor):
+    """Execute firewall rule changes (mock)."""
+
+    async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            raw_rule = action.parameters.get("rule_template", "")
+            rule = raw_rule.format(**context) if isinstance(raw_rule, str) else str(raw_rule)
+            logger.info(f"Applying firewall rule: {rule}")
+            await asyncio.sleep(0.3)
+            return {"status": "success", "output": f"Firewall rule applied: {rule}"}
+        except Exception as e:
+            logger.error(f"Firewall rule failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
+
+class ADCommandExecutor(ActionExecutor):
+    """Execute Active Directory commands (mock)."""
+
+    async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            raw_user = action.parameters.get("username", "")
+            username = raw_user.format(**context) if isinstance(raw_user, str) else str(raw_user)
+            logger.info(f"Executing AD command for user: {username}")
+            await asyncio.sleep(0.3)
+            return {"status": "success", "output": f"AD command executed for {username}"}
+        except Exception as e:
+            logger.error(f"AD command failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
+
+class GenericExecutor(ActionExecutor):
+    """Generic executor for action types without specific implementation."""
+
+    async def execute(self, action: PlaybookAction, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            logger.info(f"Executing generic action: {action.action_type} ({action.action_id})")
+            await asyncio.sleep(0.3)
+            return {"status": "success", "output": f"Action {action.action_type} executed (mock)"}
+        except Exception as e:
+            logger.error(f"Generic action failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
+
 # Action executor registry
 ACTION_EXECUTORS = {
     "ssh_command": SSHCommandExecutor(),
     "edr_command": EDRCommandExecutor(),
     "email_command": EmailCommandExecutor(),
     "api_call": APICallExecutor(),
+    "notification": NotificationExecutor(),
+    "firewall_rule": FirewallRuleExecutor(),
+    "ad_command": ADCommandExecutor(),
+    "network_change": GenericExecutor(),
+    "email_action": GenericExecutor(),
+    "email_filter": GenericExecutor(),
+    "security_filter": GenericExecutor(),
+    "threat_intel_upload": GenericExecutor(),
+    "rate_limit": GenericExecutor(),
+    "security_config": GenericExecutor(),
+    "forensics": GenericExecutor(),
+    "access_control": GenericExecutor(),
+    "log_collection": GenericExecutor(),
+    "audit_log": GenericExecutor(),
+    "workflow_trigger": GenericExecutor(),
 }
+
+
+# ---------------------------------------------------------------------------
+# Playbook execution logic
+# ---------------------------------------------------------------------------
 
 
 async def execute_playbook_action(
     execution: PlaybookExecution, action: PlaybookAction, context: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """
-    Execute a single playbook action.
-
-    Args:
-        execution: Playbook execution instance
-        action: Action to execute
-        context: Execution context with variables
-
-    Returns:
-        Action execution result
-    """
+    """Execute a single playbook action."""
     try:
         logger.info(
             f"Executing action {action.action_id} "
@@ -305,17 +495,40 @@ async def execute_playbook_action(
         # Check conditions
         if action.conditions:
             for condition in action.conditions:
-                # TODO: Implement proper condition evaluation
-                pass
+                field = condition.get("field", "")
+                operator = condition.get("operator", "==")
+                value = condition.get("value")
+                ctx_value = context.get(field)
+                if operator == "==" and ctx_value != value:
+                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
+                elif operator == "!=" and ctx_value == value:
+                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
+                elif operator == "in" and ctx_value not in (value or []):
+                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
 
         # Get executor
         executor = ACTION_EXECUTORS.get(action.action_type)
         if not executor:
             raise AutomationError(f"No executor found for action type: {action.action_type}")
 
-        # Execute action
+        # Execute action with timeout
         result = await asyncio.wait_for(
             executor.execute(action, context), timeout=action.timeout_seconds
+        )
+
+        # Audit log for action execution
+        await audit_log(
+            event_type="automation.action_executed",
+            action="execute",
+            target_type="action",
+            target_id=action.action_id,
+            details={
+                "execution_id": execution.execution_id,
+                "action_type": action.action_type,
+                "result_status": result.get("status"),
+            },
+            status="success" if result.get("status") == "success" else "failure",
+            error_message=result.get("error"),
         )
 
         return result
@@ -332,13 +545,74 @@ async def execute_playbook_action(
         return {"status": "failed", "error": str(e)}
 
 
-async def execute_playbook(execution: PlaybookExecution):
-    """
-    Execute playbook actions sequentially.
+async def perform_rollback(
+    execution: PlaybookExecution,
+    playbook: AutomationPlaybook,
+    context: Dict[str, Any],
+    failed_action_index: int,
+) -> None:
+    """Roll back successfully completed actions in reverse order."""
+    logger.warning(f"Starting rollback for execution {execution.execution_id}")
 
-    Args:
-        execution: Playbook execution instance
-    """
+    rollback_results = []
+    for i in range(failed_action_index - 1, -1, -1):
+        action = playbook.actions[i]
+        rollback_action_type = action.rollback_action
+        if not rollback_action_type:
+            continue
+
+        try:
+            logger.info(f"Rolling back action {action.action_id} using {rollback_action_type}")
+            rollback = PlaybookAction(
+                action_id=f"rollback-{action.action_id}",
+                action_type=action.action_type,
+                name=f"Rollback: {action.name}",
+                description=f"Rollback action for {action.action_id}",
+                parameters={
+                    **action.parameters,
+                    "rollback": True,
+                    "rollback_action": rollback_action_type,
+                },
+                timeout_seconds=action.timeout_seconds,
+            )
+            result = await execute_playbook_action(execution, rollback, context)
+            rollback_results.append({
+                "action_id": action.action_id,
+                "rollback_action": rollback_action_type,
+                "result": result,
+            })
+
+            await audit_log(
+                event_type="automation.rollback",
+                action="rollback",
+                target_type="action",
+                target_id=action.action_id,
+                details={
+                    "execution_id": execution.execution_id,
+                    "rollback_action": rollback_action_type,
+                    "result": result,
+                },
+                status="success" if result.get("status") == "success" else "failure",
+            )
+        except Exception as e:
+            logger.error(f"Rollback failed for {action.action_id}: {e}")
+            rollback_results.append({
+                "action_id": action.action_id,
+                "error": str(e),
+            })
+
+    execution.rollback_performed = True
+    execution.results.append({
+        "type": "rollback",
+        "executed_at": datetime.utcnow().isoformat(),
+        "rollback_results": rollback_results,
+    })
+
+    logger.info(f"Rollback completed for execution {execution.execution_id}")
+
+
+async def execute_playbook(execution: PlaybookExecution):
+    """Execute playbook actions sequentially."""
     try:
         playbook = playbooks.get(execution.playbook_id)
         if not playbook:
@@ -360,6 +634,17 @@ async def execute_playbook(execution: PlaybookExecution):
             logger.info(f"Playbook {execution.playbook_id} awaiting approval")
             return
 
+        await audit_log(
+            event_type="automation.execution_started",
+            action="start",
+            target_type="execution",
+            target_id=execution.execution_id,
+            details={
+                "playbook_id": execution.playbook_id,
+                "alert_id": execution.trigger_alert_id,
+            },
+        )
+
         # Execute each action
         for i, action in enumerate(playbook.actions):
             execution.current_action_index = i
@@ -367,7 +652,6 @@ async def execute_playbook(execution: PlaybookExecution):
 
             logger.info(f"Executing action {i + 1}/{len(playbook.actions)}: {action.action_id}")
 
-            # Execute action
             result = await execute_playbook_action(execution, action, context)
 
             # Store result
@@ -380,13 +664,18 @@ async def execute_playbook(execution: PlaybookExecution):
                 }
             )
 
+            # Skip doesn't count as failure
+            if result.get("status") == "skipped":
+                continue
+
             # Check if action failed
             if result.get("status") == "failed":
                 execution.status = WorkflowStatus.FAILED
                 execution.error = f"Action {action.action_id} failed: {result.get('error')}"
                 execution.completed_at = datetime.utcnow()
 
-                # TODO: Implement rollback if configured
+                # Perform rollback for previously succeeded actions
+                await perform_rollback(execution, playbook, context, i)
                 break
 
         # If all actions succeeded
@@ -395,15 +684,36 @@ async def execute_playbook(execution: PlaybookExecution):
             execution.completed_at = datetime.utcnow()
             execution.current_action = None
 
+        # Persist to DB
+        await persist_execution_update(execution)
+
         # Publish completion event
-        await publisher.publish(
-            "automation.completed",
-            {
-                "message_id": str(uuid.uuid4()),
-                "message_type": "automation.completed",
-                "payload": execution.model_dump(),
-                "timestamp": datetime.utcnow().isoformat(),
+        try:
+            await publisher.publish(
+                "automation.completed",
+                {
+                    "message_id": str(uuid.uuid4()),
+                    "message_type": "automation.completed",
+                    "payload": execution.model_dump(),
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to publish completion event: {e}")
+
+        await audit_log(
+            event_type="automation.execution_completed",
+            action="complete",
+            target_type="execution",
+            target_id=execution.execution_id,
+            details={
+                "playbook_id": execution.playbook_id,
+                "final_status": execution.status.value,
+                "actions_executed": len(execution.results),
+                "rollback_performed": execution.rollback_performed,
             },
+            status="success" if execution.status == WorkflowStatus.COMPLETED else "failure",
+            error_message=execution.error,
         )
 
         logger.info(
@@ -415,6 +725,12 @@ async def execute_playbook(execution: PlaybookExecution):
         execution.status = WorkflowStatus.FAILED
         execution.error = str(e)
         execution.completed_at = datetime.utcnow()
+        await persist_execution_update(execution)
+
+
+# ---------------------------------------------------------------------------
+# Application lifespan
+# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
@@ -437,6 +753,23 @@ async def lifespan(app: FastAPI):
 
     # Load default playbooks
     playbooks.update(DEFAULT_PLAYBOOKS)
+
+    # Load extended playbooks from playbooks module
+    try:
+        from services.automation_orchestrator.playbooks import get_all_playbooks
+
+        playbooks.update(get_all_playbooks())
+    except Exception:
+        try:
+            from playbooks import get_all_playbooks
+
+            playbooks.update(get_all_playbooks())
+        except Exception as e:
+            logger.warning(f"Could not load extended playbooks: {e}")
+
+    # Persist playbooks to DB
+    for pb in playbooks.values():
+        asyncio.create_task(persist_playbook(pb))
 
     # Start consuming automation triggers
     asyncio.create_task(consume_automation_triggers())
@@ -467,6 +800,11 @@ app.add_middleware(
 )
 
 
+# ---------------------------------------------------------------------------
+# Message consumption
+# ---------------------------------------------------------------------------
+
+
 async def consume_automation_triggers():
     """Consume automation trigger messages from queue."""
 
@@ -481,8 +819,7 @@ async def consume_automation_triggers():
                 logger.error("Missing playbook_id in trigger message")
                 return
 
-            # Start playbook execution
-            execution = start_playbook_execution(playbook_id, alert_id, input_data)
+            execution = await start_playbook_execution(playbook_id, alert_id, input_data)
             logger.info(f"Started playbook execution {execution.execution_id}")
 
         except Exception as e:
@@ -491,20 +828,10 @@ async def consume_automation_triggers():
     await consumer.consume(process_message)
 
 
-def start_playbook_execution(
+async def start_playbook_execution(
     playbook_id: str, alert_id: str, input_data: Dict[str, Any]
 ) -> PlaybookExecution:
-    """
-    Start a new playbook execution.
-
-    Args:
-        playbook_id: Playbook definition ID
-        alert_id: Alert that triggered execution
-        input_data: Input parameters
-
-    Returns:
-        PlaybookExecution instance
-    """
+    """Start a new playbook execution."""
     execution = PlaybookExecution(
         execution_id=f"pb-exec-{uuid.uuid4()}",
         playbook_id=playbook_id,
@@ -512,10 +839,11 @@ def start_playbook_execution(
         status=WorkflowStatus.PENDING,
         started_at=datetime.utcnow(),
         results=[],
+        input_data=input_data,
     )
 
-    # Add input data to execution
-    execution.input_data = input_data
+    # Persist to DB
+    await persist_execution_start(execution)
 
     # Start execution in background
     asyncio.create_task(execute_playbook(execution))
@@ -523,7 +851,9 @@ def start_playbook_execution(
     return execution
 
 
+# ---------------------------------------------------------------------------
 # API Endpoints
+# ---------------------------------------------------------------------------
 
 
 @app.post("/api/v1/playbooks", response_model=Dict[str, Any])
@@ -532,7 +862,16 @@ async def create_playbook(playbook: AutomationPlaybook):
     try:
         playbooks[playbook.playbook_id] = playbook
 
-        # TODO: Save to database
+        # Persist to DB
+        await persist_playbook(playbook)
+
+        await audit_log(
+            event_type="automation.playbook_created",
+            action="create",
+            target_type="playbook",
+            target_id=playbook.playbook_id,
+            details={"name": playbook.name, "actions_count": len(playbook.actions)},
+        )
 
         return {
             "success": True,
@@ -572,6 +911,37 @@ async def get_playbook(playbook_id: str):
     }
 
 
+@app.delete("/api/v1/playbooks/{playbook_id}", response_model=Dict[str, Any])
+async def delete_playbook(playbook_id: str):
+    """Delete a playbook."""
+    if playbook_id not in playbooks:
+        raise HTTPException(status_code=404, detail=f"Playbook not found: {playbook_id}")
+
+    del playbooks[playbook_id]
+
+    if db_manager:
+        try:
+            async with db_manager.get_session() as session:
+                repo = WorkflowRepository(session)
+                await repo.delete_workflow(playbook_id)
+                await session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to delete playbook from DB: {e}")
+
+    await audit_log(
+        event_type="automation.playbook_deleted",
+        action="delete",
+        target_type="playbook",
+        target_id=playbook_id,
+    )
+
+    return {
+        "success": True,
+        "message": f"Playbook {playbook_id} deleted",
+        "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+    }
+
+
 @app.post("/api/v1/playbooks/execute", response_model=Dict[str, Any])
 async def execute_playbook_api(
     playbook_id: str,
@@ -579,21 +949,12 @@ async def execute_playbook_api(
     input_data: Dict[str, Any] = None,
     background_tasks: BackgroundTasks = None,
 ):
-    """
-    Start playbook execution via API.
-
-    Args:
-        playbook_id: Playbook to execute
-        alert_id: Alert that triggered execution
-        input_data: Optional input parameters
-    """
+    """Start playbook execution via API."""
     try:
-        # Check if playbook exists
         if playbook_id not in playbooks:
             raise HTTPException(status_code=404, detail=f"Playbook not found: {playbook_id}")
 
-        # Start execution
-        execution = start_playbook_execution(playbook_id, alert_id, input_data or {})
+        execution = await start_playbook_execution(playbook_id, alert_id, input_data or {})
 
         return {
             "success": True,
@@ -666,6 +1027,15 @@ async def approve_execution(execution_id: str, approver: str, comments: Optional
     # Resume execution
     asyncio.create_task(execute_playbook(execution))
 
+    await audit_log(
+        event_type="automation.execution_approved",
+        action="approve",
+        target_type="execution",
+        target_id=execution_id,
+        actor_id=approver,
+        details={"comments": comments, "playbook_id": execution.playbook_id},
+    )
+
     return {
         "success": True,
         "message": "Execution approved",
@@ -688,11 +1058,66 @@ async def cancel_execution(execution_id: str):
     execution.status = WorkflowStatus.CANCELLED
     execution.completed_at = datetime.utcnow()
 
+    await persist_execution_update(execution)
+
+    await audit_log(
+        event_type="automation.execution_cancelled",
+        action="cancel",
+        target_type="execution",
+        target_id=execution_id,
+        details={"playbook_id": execution.playbook_id},
+    )
+
     return {
         "success": True,
         "message": "Execution cancelled",
         "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
     }
+
+
+@app.get("/api/v1/executions/{execution_id}/audit", response_model=Dict[str, Any])
+async def get_execution_audit_trail(execution_id: str):
+    """Get audit trail for a specific execution."""
+    if not db_manager:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        from sqlalchemy import select
+
+        async with db_manager.get_session() as session:
+            result = await session.execute(
+                select(AuditLog)
+                .where(AuditLog.target_id == execution_id)
+                .order_by(AuditLog.timestamp.asc())
+            )
+            logs = result.scalars().all()
+
+            return {
+                "success": True,
+                "data": {
+                    "execution_id": execution_id,
+                    "audit_trail": [
+                        {
+                            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                            "event_type": log.event_type,
+                            "action": log.action,
+                            "actor_id": log.actor_id,
+                            "details": log.details,
+                            "status": log.status,
+                            "error_message": log.error_message,
+                        }
+                        for log in logs
+                    ],
+                    "total": len(logs),
+                },
+                "meta": {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "request_id": str(uuid.uuid4()),
+                },
+            }
+    except Exception as e:
+        logger.error(f"Failed to get audit trail: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get audit trail: {str(e)}")
 
 
 @app.get("/health")
