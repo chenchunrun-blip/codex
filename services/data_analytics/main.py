@@ -246,6 +246,124 @@ def calculate_time_range(time_range: TimeRange) -> tuple[datetime, datetime]:
     return start_date, end_date
 
 
+# Helper functions for database queries
+
+
+async def _query_top_alerts(limit: int = 10) -> List[Dict[str, Any]]:
+    """Query top recent alerts from database."""
+    if not db_manager:
+        return []
+    try:
+        from sqlalchemy import text
+        async with db_manager.get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT alert_id, title, severity, alert_type, status, created_at
+                    FROM alerts
+                    ORDER BY
+                        CASE severity
+                            WHEN 'critical' THEN 1
+                            WHEN 'high' THEN 2
+                            WHEN 'medium' THEN 3
+                            WHEN 'low' THEN 4
+                            ELSE 5
+                        END,
+                        created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            )
+            rows = result.fetchall()
+            return [
+                {
+                    "alert_id": row[0],
+                    "title": row[1],
+                    "severity": row[2],
+                    "alert_type": row[3],
+                    "status": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.warning(f"Failed to query top alerts: {e}")
+        return []
+
+
+async def _query_alert_metrics(
+    start_date: datetime, end_date: datetime
+) -> Optional[AlertMetric]:
+    """Query alert metrics from database for the given time range."""
+    if not db_manager:
+        return None
+    try:
+        from sqlalchemy import text
+        async with db_manager.get_session() as session:
+            # Total alerts in range
+            total_result = await session.execute(
+                text("SELECT COUNT(*) FROM alerts WHERE created_at BETWEEN :start AND :end"),
+                {"start": start_date, "end": end_date},
+            )
+            total = total_result.scalar() or 0
+
+            # By severity
+            sev_result = await session.execute(
+                text("""
+                    SELECT severity, COUNT(*) FROM alerts
+                    WHERE created_at BETWEEN :start AND :end
+                    GROUP BY severity
+                """),
+                {"start": start_date, "end": end_date},
+            )
+            by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+            for row in sev_result.fetchall():
+                if row[0] in by_severity:
+                    by_severity[row[0]] = row[1]
+
+            # By type
+            type_result = await session.execute(
+                text("""
+                    SELECT alert_type, COUNT(*) FROM alerts
+                    WHERE created_at BETWEEN :start AND :end
+                    GROUP BY alert_type
+                """),
+                {"start": start_date, "end": end_date},
+            )
+            by_type = {row[0]: row[1] for row in type_result.fetchall()}
+
+            # Triaged count
+            triaged_result = await session.execute(
+                text("""
+                    SELECT COUNT(*) FROM alerts
+                    WHERE created_at BETWEEN :start AND :end AND status IN ('triaged', 'resolved', 'closed')
+                """),
+                {"start": start_date, "end": end_date},
+            )
+            triaged = triaged_result.scalar() or 0
+
+            # Human reviewed
+            reviewed_result = await session.execute(
+                text("""
+                    SELECT COUNT(*) FROM triage_results
+                    WHERE created_at BETWEEN :start AND :end AND triaged_by != 'ai-agent'
+                """),
+                {"start": start_date, "end": end_date},
+            )
+            human_reviewed = reviewed_result.scalar() or 0
+
+            return AlertMetric(
+                total_alerts=total,
+                by_severity=by_severity,
+                by_type=by_type,
+                triaged=triaged,
+                auto_closed=max(0, triaged - human_reviewed),
+                human_reviewed=human_reviewed,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to query alert metrics from DB: {e}")
+        return None
+
+
 # API Endpoints
 
 
@@ -311,7 +429,7 @@ async def get_dashboard():
             triage_metrics=triage_metrics,
             automation_metrics=automation_metrics,
             trends=trends,
-            top_alerts=[],  # TODO: Implement top alerts query
+            top_alerts=await _query_top_alerts(5),
         )
 
         return {
@@ -331,17 +449,20 @@ async def get_alert_metrics(time_range: TimeRange = Query(TimeRange.LAST_24H)):
     try:
         start_date, end_date = calculate_time_range(time_range)
 
-        # TODO: Query actual data from database
-        # For now, return cached metrics
-        metrics = AlertMetric(
-            total_alerts=metrics_cache["alerts"]["total"],
-            by_severity=metrics_cache["alerts"]["by_severity"].copy(),
-            by_type=metrics_cache["alerts"]["by_type"].copy(),
-            triaged=metrics_cache["alerts"]["triaged"],
-            auto_closed=metrics_cache["alerts"]["triaged"]
-            - metrics_cache["triage"]["human_triaged"],
-            human_reviewed=metrics_cache["triage"]["human_triaged"],
-        )
+        # Query metrics from database, fall back to cache
+        db_metrics = await _query_alert_metrics(start_date, end_date)
+        if db_metrics:
+            metrics = db_metrics
+        else:
+            metrics = AlertMetric(
+                total_alerts=metrics_cache["alerts"]["total"],
+                by_severity=metrics_cache["alerts"]["by_severity"].copy(),
+                by_type=metrics_cache["alerts"]["by_type"].copy(),
+                triaged=metrics_cache["alerts"]["triaged"],
+                auto_closed=metrics_cache["alerts"]["triaged"]
+                - metrics_cache["triage"]["human_triaged"],
+                human_reviewed=metrics_cache["triage"]["human_triaged"],
+            )
 
         return {
             "success": True,

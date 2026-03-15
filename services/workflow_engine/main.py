@@ -37,6 +37,7 @@ state-machine pattern.  It supports:
 
 import asyncio
 import json
+import os
 import re
 import uuid
 from contextlib import asynccontextmanager
@@ -97,6 +98,99 @@ metrics = MetricsCollector("workflow_engine")
 
 # Events used to resume workflows paused on human tasks
 _resume_events: Dict[str, asyncio.Event] = {}
+
+# ---------------------------------------------------------------------------
+# State Machine - Valid Transitions
+# ---------------------------------------------------------------------------
+
+VALID_WORKFLOW_TRANSITIONS: Dict[str, List[str]] = {
+    WorkflowStatus.PENDING: [WorkflowStatus.RUNNING, WorkflowStatus.CANCELLED],
+    WorkflowStatus.RUNNING: [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED, WorkflowStatus.TIMED_OUT],
+    WorkflowStatus.COMPLETED: [],  # terminal
+    WorkflowStatus.FAILED: [WorkflowStatus.PENDING],  # allow retry
+    WorkflowStatus.CANCELLED: [],  # terminal
+    WorkflowStatus.TIMED_OUT: [WorkflowStatus.PENDING],  # allow retry
+}
+
+VALID_TASK_TRANSITIONS: Dict[str, List[str]] = {
+    TaskStatus.PENDING: [TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.SKIPPED, TaskStatus.CANCELLED],
+    TaskStatus.ASSIGNED: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
+    TaskStatus.IN_PROGRESS: [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED],
+    TaskStatus.COMPLETED: [],  # terminal
+    TaskStatus.FAILED: [TaskStatus.PENDING],  # allow retry
+    TaskStatus.SKIPPED: [],  # terminal
+    TaskStatus.CANCELLED: [],  # terminal
+}
+
+
+def validate_workflow_transition(current: WorkflowStatus, target: WorkflowStatus) -> bool:
+    """
+    Validate that a workflow status transition is allowed.
+
+    Args:
+        current: Current workflow status
+        target: Target workflow status
+
+    Returns:
+        True if transition is valid
+
+    Raises:
+        ValueError: If transition is invalid
+    """
+    allowed = VALID_WORKFLOW_TRANSITIONS.get(current, [])
+    if target not in allowed:
+        raise ValueError(
+            f"Invalid workflow transition: {current.value} -> {target.value}. "
+            f"Allowed: {[s.value for s in allowed]}"
+        )
+    return True
+
+
+def validate_task_transition(current: TaskStatus, target: TaskStatus) -> bool:
+    """
+    Validate that a task status transition is allowed.
+
+    Args:
+        current: Current task status
+        target: Target task status
+
+    Returns:
+        True if transition is valid
+
+    Raises:
+        ValueError: If transition is invalid
+    """
+    allowed = VALID_TASK_TRANSITIONS.get(current, [])
+    if target not in allowed:
+        raise ValueError(
+            f"Invalid task transition: {current.value} -> {target.value}. "
+            f"Allowed: {[s.value for s in allowed]}"
+        )
+    return True
+
+
+async def transition_workflow_status(
+    execution: WorkflowExecution,
+    new_status: WorkflowStatus,
+    reason: str = "",
+) -> None:
+    """
+    Transition workflow to a new status with validation and audit logging.
+
+    Args:
+        execution: Workflow execution to transition
+        new_status: Target status
+        reason: Reason for transition
+    """
+    old_status = execution.status
+    validate_workflow_transition(old_status, new_status)
+    execution.status = new_status
+    if new_status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED, WorkflowStatus.TIMED_OUT):
+        execution.completed_at = datetime.utcnow()
+    logger.info(
+        f"Workflow {execution.execution_id} transitioned: {old_status.value} -> {new_status.value}",
+        extra={"execution_id": execution.execution_id, "reason": reason},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +654,30 @@ async def monitor_sla():
                 logger.warning(f"SLA breaches detected: {len(breaches)} tasks")
         except Exception as e:
             logger.error(f"Error monitoring SLA: {e}", exc_info=True)
+
+
+AUTO_CLOSE_HOURS = int(os.getenv("AUTO_CLOSE_HOURS", "24"))
+
+async def auto_close_resolved():
+    """Auto-close completed/resolved workflows after configured timeout."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Check hourly
+            cutoff = datetime.utcnow() - timedelta(hours=AUTO_CLOSE_HOURS)
+            closed_count = 0
+
+            for exec_id, execution in list(active_executions.items()):
+                if execution.status == WorkflowStatus.COMPLETED and execution.completed_at:
+                    if execution.completed_at < cutoff:
+                        del active_executions[exec_id]
+                        closed_count += 1
+                        logger.debug(f"Auto-cleaned completed execution {exec_id}")
+
+            if closed_count > 0:
+                logger.info(f"Auto-cleaned {closed_count} completed executions older than {AUTO_CLOSE_HOURS}h")
+
+        except Exception as e:
+            logger.error(f"Auto-close task error: {e}", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1718,6 +1836,9 @@ async def lifespan(app: FastAPI):
 
     # Start SLA monitoring
     asyncio.create_task(monitor_sla())
+
+    # Start auto-close background task for resolved workflows
+    asyncio.create_task(auto_close_resolved())
 
     logger.info("Workflow Engine service started successfully")
 

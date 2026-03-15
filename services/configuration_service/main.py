@@ -24,7 +24,7 @@ import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
-from shared.messaging import MessageConsumer
+from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
 
@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 config = Config()
 
 db_manager: DatabaseManager = None
+publisher: MessagePublisher = None
 
 # In-memory configuration storage (use database in production)
 config_store: Dict[str, Dict[str, Any]] = {
@@ -68,7 +69,7 @@ config_history: List[Dict[str, Any]] = []
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
-    global db_manager
+    global db_manager, publisher
 
     logger.info("Starting Configuration service...")
 
@@ -82,10 +83,20 @@ async def lifespan(app: FastAPI):
     )
     db_manager = get_database_manager()
 
+    # Initialize message publisher
+    try:
+        publisher = MessagePublisher(config.rabbitmq_url)
+        await publisher.connect()
+        logger.info("Message publisher connected")
+    except Exception as e:
+        logger.warning(f"Could not connect message publisher: {e}")
+
     logger.info("Configuration service started successfully")
 
     yield
 
+    if publisher:
+        await publisher.close()
     await db_manager.close()
     logger.info("Configuration service stopped")
 
@@ -103,6 +114,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def publish_config_change(key: str, old_value: Any, new_value: Any, changed_by: str):
+    """Publish configuration change event to message queue."""
+    if not publisher:
+        logger.debug("No publisher available, skipping config change notification")
+        return
+    try:
+        event = {
+            "message_id": str(uuid.uuid4()),
+            "message_type": "config.changed",
+            "timestamp": datetime.utcnow().isoformat(),
+            "payload": {
+                "key": key,
+                "old_value": old_value,
+                "new_value": new_value,
+                "changed_by": changed_by,
+            },
+        }
+        await publisher.publish("config.changed", event)
+        logger.info(f"Config change event published for key: {key}")
+    except Exception as e:
+        logger.error(f"Failed to publish config change event: {e}")
 
 
 def record_config_change(key: str, old_value: Any, new_value: Any, changed_by: str):
@@ -160,7 +194,7 @@ async def update_config(key: str, value: Dict[str, Any], changed_by: str = "syst
         record_config_change(key, old_value, value, changed_by)
 
         # Publish configuration change event
-        # TODO: Send to message queue for other services to update
+        await publish_config_change(key, old_value, value, changed_by)
 
         logger.info(f"Configuration updated: {key} by {changed_by}")
 
@@ -181,8 +215,8 @@ async def update_config(key: str, value: Dict[str, Any], changed_by: str = "syst
 async def reset_config(key: str, changed_by: str = "system"):
     """Reset configuration to default value."""
     try:
-        # TODO: Define default configurations
         defaults = {
+            "system": {"version": "1.0.0", "environment": "production", "maintenance_mode": False},
             "alerts": {
                 "auto_triage_enabled": True,
                 "auto_response_threshold": "high",
@@ -192,6 +226,19 @@ async def reset_config(key: str, changed_by: str = "system"):
                 "approval_required": True,
                 "timeout_seconds": 600,
                 "max_concurrent_executions": 10,
+            },
+            "notifications": {
+                "channels": ["email", "slack"],
+                "critical_alerts": ["email", "slack", "sms"],
+                "high_alerts": ["email", "slack"],
+                "medium_alerts": ["email"],
+                "low_alerts": ["in_app"],
+            },
+            "llm": {
+                "default_model": "deepseek-v3",
+                "fallback_model": "qwen3-max",
+                "temperature": 0.7,
+                "max_tokens": 2000,
             },
         }
 
@@ -206,6 +253,8 @@ async def reset_config(key: str, changed_by: str = "system"):
         config_store[key] = new_value
 
         record_config_change(key, old_value, new_value, changed_by)
+
+        await publish_config_change(key, old_value, new_value, changed_by)
 
         logger.info(f"Configuration reset to default: {key}")
 

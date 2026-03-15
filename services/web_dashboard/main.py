@@ -20,10 +20,11 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, Set
+from typing import Any, Dict, Optional, Set
 from pathlib import Path
 
 import httpx
+import redis.asyncio as redis
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -36,6 +37,11 @@ logger = get_logger(__name__)
 config = Config()
 
 db_manager: DatabaseManager = None
+
+# Redis for token blacklisting
+_redis_client: Optional[redis.Redis] = None
+TOKEN_BLACKLIST_PREFIX = "token:blacklisted:"
+TOKEN_EXPIRY_SECONDS = 3600  # 1 hour
 
 # Sensitive configuration keys that should be encrypted
 SENSITIVE_CONFIG_KEYS = {
@@ -66,7 +72,7 @@ SERVICE_URLS = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
-    global db_manager
+    global db_manager, _redis_client
 
     logger.info("Starting Web Dashboard service...")
 
@@ -79,10 +85,22 @@ async def lifespan(app: FastAPI):
     )
     db_manager = get_database_manager()
 
+    # Initialize Redis for token blacklisting
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        _redis_client = redis.from_url(redis_url, decode_responses=True)
+        await _redis_client.ping()
+        logger.info("Redis connected for token management")
+    except Exception as e:
+        logger.warning(f"Redis not available for token blacklisting: {e}")
+        _redis_client = None
+
     logger.info("Web Dashboard service started successfully")
 
     yield
 
+    if _redis_client:
+        await _redis_client.close()
     await db_manager.close()
     logger.info("Web Dashboard service stopped")
 
@@ -270,14 +288,32 @@ async def login(request: Request):
         )
 
 
-@app.post("/api/v1/auth/logout")
-async def logout():
-    """
-    Logout endpoint.
+async def is_token_blacklisted(token: str) -> bool:
+    """Check if a token has been blacklisted (logged out)."""
+    if not _redis_client:
+        return False
+    try:
+        return await _redis_client.exists(f"{TOKEN_BLACKLIST_PREFIX}{token}") > 0
+    except Exception:
+        return False
 
-    TODO: Implement token invalidation in Redis for proper logout.
-    Currently just returns success - client should discard token.
-    """
+
+@app.post("/api/v1/auth/logout")
+async def logout(request: Request):
+    """Logout endpoint - blacklists the current token."""
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        if _redis_client:
+            try:
+                await _redis_client.setex(
+                    f"{TOKEN_BLACKLIST_PREFIX}{token}",
+                    TOKEN_EXPIRY_SECONDS,
+                    "1",
+                )
+                logger.info("Token blacklisted on logout")
+            except Exception as e:
+                logger.warning(f"Failed to blacklist token: {e}")
     return {"success": True, "data": None}
 
 
@@ -298,6 +334,13 @@ async def get_current_user(request: Request):
             )
 
         token = auth_header.split(" ")[1]
+
+        # Check blacklist
+        if await is_token_blacklisted(token):
+            return JSONResponse(
+                content={"success": False, "error": "Token has been revoked"},
+                status_code=401,
+            )
 
         # Decode and validate token
         payload = decode_access_token(token)
@@ -339,23 +382,65 @@ async def get_current_user(request: Request):
 @app.post("/api/v1/auth/refresh")
 async def refresh_token(request: Request):
     """
-    Refresh access token.
+    Refresh access token with token rotation.
 
-    TODO: Implement proper refresh token mechanism with token rotation.
-    Currently just issues a new token.
+    Validates the current token, blacklists it, and issues a new one.
     """
     try:
-        import json
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                content={"success": False, "error": "Missing Authorization header"},
+                status_code=401,
+            )
 
-        body = await request.body()
-        data = json.loads(body) if body else {}
+        old_token = auth_header.split(" ")[1]
 
-        # For now, just create a new token
-        # In production, validate refresh token and issue new access token
-        return JSONResponse(
-            content={"success": False, "error": "Token refresh not yet implemented"},
-            status_code=501,
-        )
+        # Check if token is blacklisted
+        if await is_token_blacklisted(old_token):
+            return JSONResponse(
+                content={"success": False, "error": "Token has been revoked"},
+                status_code=401,
+            )
+
+        # Validate old token
+        payload = decode_access_token(old_token)
+        if not payload:
+            return JSONResponse(
+                content={"success": False, "error": "Invalid or expired token"},
+                status_code=401,
+            )
+
+        # Blacklist old token
+        if _redis_client:
+            try:
+                await _redis_client.setex(
+                    f"{TOKEN_BLACKLIST_PREFIX}{old_token}",
+                    TOKEN_EXPIRY_SECONDS,
+                    "1",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to blacklist old token during refresh: {e}")
+
+        # Issue new token with same claims
+        new_token_data = {
+            "sub": payload.get("sub"),
+            "username": payload.get("username"),
+            "role": payload.get("role"),
+        }
+        new_token = create_access_token(new_token_data)
+
+        logger.info(f"Token refreshed for user {payload.get('username')}")
+
+        return {
+            "success": True,
+            "data": {
+                "access_token": new_token,
+                "refresh_token": new_token,
+                "token_type": "bearer",
+                "expires_in": TOKEN_EXPIRY_SECONDS,
+            },
+        }
     except Exception as e:
         logger.error(f"Token refresh error: {e}", exc_info=True)
         return JSONResponse(
