@@ -25,9 +25,6 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import sys
-sys.path.insert(0, '/Users/newmba/security')
-
 from loguru import logger
 
 from shared.database.base import get_database_manager

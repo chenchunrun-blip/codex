@@ -32,9 +32,13 @@ from loguru import logger
 
 from routes import alerts as alerts_router
 from routes import analytics as analytics_router
+from routes.threat_intel import router as threat_intel_router
+from routes.workflows import router as workflows_router
+from routes.automation import router as automation_router
+from routes.reports import router as reports_router
+from routes.users import router as users_router
+from routes.config import router as config_router
 
-import sys
-sys.path.insert(0, '/Users/newmba/security')
 from shared.database.base import get_database_manager, init_database
 
 
@@ -171,6 +175,42 @@ app.include_router(
     analytics_router,
     prefix="/api/v1/analytics",
     tags=["Analytics"],
+)
+
+app.include_router(
+    threat_intel_router,
+    prefix="/api/v1",
+    tags=["Threat Intelligence"],
+)
+
+app.include_router(
+    workflows_router,
+    prefix="/api/v1",
+    tags=["Workflows"],
+)
+
+app.include_router(
+    automation_router,
+    prefix="/api/v1",
+    tags=["Automation"],
+)
+
+app.include_router(
+    reports_router,
+    prefix="/api/v1",
+    tags=["Reports"],
+)
+
+app.include_router(
+    users_router,
+    prefix="/api/v1",
+    tags=["Users"],
+)
+
+app.include_router(
+    config_router,
+    prefix="/api/v1",
+    tags=["Configuration"],
 )
 
 

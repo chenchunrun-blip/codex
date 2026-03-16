@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional, Set
 from pathlib import Path
 
 import httpx
+import pyotp
 import redis.asyncio as redis
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -260,6 +261,27 @@ async def login(request: Request):
                     status_code=401,
                 )
 
+            # Check MFA requirement
+            if user.mfa_enabled and user.mfa_secret:
+                mfa_code = credentials.get("mfa_code")
+                if not mfa_code:
+                    return JSONResponse(
+                        content={
+                            "success": False,
+                            "error": "MFA_REQUIRED",
+                            "mfa_required": True,
+                        },
+                        status_code=200,
+                    )
+
+                # Verify MFA code
+                totp = pyotp.TOTP(user.mfa_secret)
+                if not totp.verify(mfa_code):
+                    return JSONResponse(
+                        content={"success": False, "error": "Invalid MFA code"},
+                        status_code=401,
+                    )
+
             # Create JWT token
             token_data = {
                 "sub": str(user.id),
@@ -284,6 +306,240 @@ async def login(request: Request):
         logger.error(f"Login error: {e}", exc_info=True)
         return JSONResponse(
             content={"success": False, "error": "Authentication failed"},
+            status_code=500,
+        )
+
+
+async def _get_authenticated_user(request: Request):
+    """
+    Extract and validate the authenticated user from the request.
+
+    Args:
+        request: FastAPI request object with Authorization header.
+
+    Returns:
+        Tuple of (user, error_response). If user is None, error_response
+        contains the JSONResponse to return.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None, JSONResponse(
+            content={"success": False, "error": "Missing or invalid Authorization header"},
+            status_code=401,
+        )
+
+    token = auth_header.split(" ")[1]
+
+    if await is_token_blacklisted(token):
+        return None, JSONResponse(
+            content={"success": False, "error": "Token has been revoked"},
+            status_code=401,
+        )
+
+    payload = decode_access_token(token)
+    if not payload:
+        return None, JSONResponse(
+            content={"success": False, "error": "Invalid or expired token"},
+            status_code=401,
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None, JSONResponse(
+            content={"success": False, "error": "Invalid token payload"},
+            status_code=401,
+        )
+
+    async with db_manager.get_session() as session:
+        user = await get_user_by_id(session, user_id)
+        if not user:
+            return None, JSONResponse(
+                content={"success": False, "error": "User not found"},
+                status_code=404,
+            )
+        return user, None
+
+
+@app.post("/api/v1/auth/mfa/setup")
+async def mfa_setup(request: Request):
+    """
+    Initialize MFA setup for the authenticated user.
+
+    Generates a TOTP secret and returns the provisioning URI
+    for QR code generation. Does not enable MFA until verified.
+
+    Returns:
+        TOTP secret and provisioning URI.
+    """
+    try:
+        user, error_response = await _get_authenticated_user(request)
+        if error_response:
+            return error_response
+
+        # Generate a new TOTP secret
+        secret = pyotp.random_base32()
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(
+            user.username, issuer_name="SecurityTriage"
+        )
+
+        logger.info(
+            "MFA setup initiated",
+            extra={"user_id": str(user.id), "username": user.username},
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "secret": secret,
+                "provisioning_uri": provisioning_uri,
+            },
+        }
+    except Exception as e:
+        logger.error(f"MFA setup error: {e}", exc_info=True)
+        return JSONResponse(
+            content={"success": False, "error": "Failed to initialize MFA setup"},
+            status_code=500,
+        )
+
+
+@app.post("/api/v1/auth/mfa/verify")
+async def mfa_verify(request: Request):
+    """
+    Verify a TOTP code and activate MFA for the authenticated user.
+
+    Accepts a TOTP code and the secret generated during setup.
+    If the code is valid, saves the secret and enables MFA on the user account.
+
+    Request body:
+        code: Six-digit TOTP code.
+        secret: Base32-encoded TOTP secret from setup step.
+
+    Returns:
+        Success status indicating MFA has been enabled.
+    """
+    try:
+        user, error_response = await _get_authenticated_user(request)
+        if error_response:
+            return error_response
+
+        body = await request.body()
+        data = json.loads(body) if body else {}
+
+        code = data.get("code")
+        secret = data.get("secret")
+
+        if not code or not secret:
+            return JSONResponse(
+                content={"success": False, "error": "Both 'code' and 'secret' are required"},
+                status_code=400,
+            )
+
+        # Verify the TOTP code against the provided secret
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code):
+            return JSONResponse(
+                content={"success": False, "error": "Invalid MFA code"},
+                status_code=401,
+            )
+
+        # Save MFA secret and enable MFA on the user record
+        async with db_manager.get_session() as session:
+            db_user = await get_user_by_id(session, str(user.id))
+            if not db_user:
+                return JSONResponse(
+                    content={"success": False, "error": "User not found"},
+                    status_code=404,
+                )
+            db_user.mfa_secret = secret
+            db_user.mfa_enabled = True
+            await session.commit()
+
+        logger.info(
+            "MFA enabled",
+            extra={"user_id": str(user.id), "username": user.username},
+        )
+
+        return {
+            "success": True,
+            "data": {"mfa_enabled": True},
+        }
+    except Exception as e:
+        logger.error(f"MFA verify error: {e}", exc_info=True)
+        return JSONResponse(
+            content={"success": False, "error": "Failed to verify MFA"},
+            status_code=500,
+        )
+
+
+@app.post("/api/v1/auth/mfa/disable")
+async def mfa_disable(request: Request):
+    """
+    Disable MFA for the authenticated user.
+
+    Requires verification of the current TOTP code before disabling.
+
+    Request body:
+        code: Six-digit TOTP code from the user's authenticator app.
+
+    Returns:
+        Success status indicating MFA has been disabled.
+    """
+    try:
+        user, error_response = await _get_authenticated_user(request)
+        if error_response:
+            return error_response
+
+        body = await request.body()
+        data = json.loads(body) if body else {}
+
+        code = data.get("code")
+
+        if not code:
+            return JSONResponse(
+                content={"success": False, "error": "'code' is required"},
+                status_code=400,
+            )
+
+        if not user.mfa_enabled or not user.mfa_secret:
+            return JSONResponse(
+                content={"success": False, "error": "MFA is not enabled for this account"},
+                status_code=400,
+            )
+
+        # Verify the current TOTP code before disabling
+        totp = pyotp.TOTP(user.mfa_secret)
+        if not totp.verify(code):
+            return JSONResponse(
+                content={"success": False, "error": "Invalid MFA code"},
+                status_code=401,
+            )
+
+        # Clear MFA secret and disable MFA
+        async with db_manager.get_session() as session:
+            db_user = await get_user_by_id(session, str(user.id))
+            if not db_user:
+                return JSONResponse(
+                    content={"success": False, "error": "User not found"},
+                    status_code=404,
+                )
+            db_user.mfa_secret = None
+            db_user.mfa_enabled = False
+            await session.commit()
+
+        logger.info(
+            "MFA disabled",
+            extra={"user_id": str(user.id), "username": user.username},
+        )
+
+        return {
+            "success": True,
+            "data": {"mfa_enabled": False},
+        }
+    except Exception as e:
+        logger.error(f"MFA disable error: {e}", exc_info=True)
+        return JSONResponse(
+            content={"success": False, "error": "Failed to disable MFA"},
             status_code=500,
         )
 

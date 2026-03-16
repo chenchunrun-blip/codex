@@ -28,9 +28,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-import sys
-sys.path.insert(0, '/Users/newmba/security')
-
 from loguru import logger
 
 from shared.database.base import get_database_manager

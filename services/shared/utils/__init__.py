@@ -18,8 +18,20 @@ Shared utilities package.
 Provides common utilities for logging, configuration, caching, and metrics.
 """
 
-from .cache import CacheManager
+from .cache import CacheManager, MultiLevelCache, L1MemoryCache
 from .config import Config
+from .elasticsearch import ElasticsearchManager
 from .logger import get_logger
+from .tracing import setup_tracing, get_tracer, add_tracing_middleware
 
-__all__ = ["get_logger", "Config", "CacheManager"]
+__all__ = [
+    "get_logger",
+    "Config",
+    "CacheManager",
+    "MultiLevelCache",
+    "L1MemoryCache",
+    "ElasticsearchManager",
+    "setup_tracing",
+    "get_tracer",
+    "add_tracing_middleware",
+]

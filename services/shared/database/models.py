@@ -87,7 +87,7 @@ class User(Base):
     )
 
     # Relationships
-    # assigned_alerts = relationship("Alert", back_populates="assigned_user")  # Commented out - assigned_to field not in DB
+    assigned_alerts = relationship("Alert", foreign_keys="[Alert.assigned_to]", back_populates="assigned_user")
     triage_results = relationship("TriageResult", back_populates="analyst")
     created_incidents = relationship("Incident", foreign_keys="[Incident.created_by]", back_populates="creator")
     assigned_incidents = relationship("Incident", foreign_keys="[Incident.assigned_to]", back_populates="assignee")
@@ -136,7 +136,7 @@ class Asset(Base):
     )
 
     # Relationships
-    # alerts = relationship("Alert", back_populates="asset")  # Commented out - asset_id not a foreign key in alerts table
+    alerts = relationship("Alert", foreign_keys="[Alert.asset_id]", primaryjoin="Asset.asset_id == Alert.asset_id", back_populates="asset", viewonly=True)
 
     __table_args__ = (
         Index("ix_assets_type", "asset_type"),
@@ -184,17 +184,17 @@ class Alert(Base):
     url: Mapped[Optional[str]] = mapped_column(String(1000))
     dns_query: Mapped[Optional[str]] = mapped_column(String(500))
 
-    # Fields not in current database schema - commented out for POC
-    # process_name: Mapped[Optional[str]] = mapped_column(String(255))
-    # process_id: Mapped[Optional[int]] = mapped_column(Integer)
-    # risk_score: Mapped[Optional[float]] = mapped_column(Float)
-    # confidence: Mapped[Optional[float]] = mapped_column(Float)
-    # assigned_to: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    # triage_result_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("triage_results.id"))
-    # source: Mapped[Optional[str]] = mapped_column(String(100))
-    # source_ref: Mapped[Optional[str]] = mapped_column(String(255))
-    # normalized_data: Mapped[Optional[dict]] = mapped_column(JSON)
-    # tags: Mapped[Optional[list]] = mapped_column(ARRAY(String), default=list)
+    # Extended alert fields
+    process_name: Mapped[Optional[str]] = mapped_column(String(255))
+    process_id: Mapped[Optional[int]] = mapped_column(Integer)
+    risk_score: Mapped[Optional[float]] = mapped_column(Float)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    assigned_to: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    triage_result_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("triage_results.id"))
+    source: Mapped[Optional[str]] = mapped_column(String(100))
+    source_ref: Mapped[Optional[str]] = mapped_column(String(255))
+    normalized_data: Mapped[Optional[dict]] = mapped_column(JSON)
+    tags: Mapped[Optional[list]] = mapped_column(ARRAY(String), default=list)
 
     # Raw data
     raw_data: Mapped[Optional[dict]] = mapped_column(JSONB)
@@ -211,11 +211,11 @@ class Alert(Base):
     )
 
     # Relationships
-    # asset: Mapped[Optional["Asset"]] = relationship("Asset", back_populates="alerts")
-    # assigned_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_alerts")
-    # triage_result: Mapped[Optional["TriageResult"]] = relationship("TriageResult", foreign_keys=[triage_result_id])
+    asset: Mapped[Optional["Asset"]] = relationship("Asset", foreign_keys=[asset_id], primaryjoin="Alert.asset_id == Asset.asset_id", back_populates="alerts", viewonly=True)
+    assigned_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_alerts")
+    triage_result: Mapped[Optional["TriageResult"]] = relationship("TriageResult", foreign_keys=[triage_result_id])
     context_data = relationship("AlertContext", back_populates="alert", uselist=False)
-    # incident_alerts: Mapped[list] = relationship("IncidentAlert", back_populates="alert")  # Commented out for POC
+    incident_alerts: Mapped[list] = relationship("IncidentAlert", back_populates="alert")
 
     __table_args__ = (
         Index("ix_alerts_received_at", "received_at"),
