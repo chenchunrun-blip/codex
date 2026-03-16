@@ -1,164 +1,195 @@
 # Prometheus Configuration for Security Triage System
 #
-# This configuration collects metrics from all services in the system.
+# Scrapes metrics from all microservices, infrastructure exporters,
+# and Prometheus itself.
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    cluster: 'security-triage'
-    environment: 'production'
+    cluster: "security-triage"
+    environment: "production"
 
-# Alerting configuration
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: []
+        - targets:
+            - "alertmanager:9093"
 
-# Rule files
 rule_files:
-  - 'alerts/*.yml'
+  - "alert_rules.yml"
+  - "alerts/*.yml"
 
-# Scrape configurations
 scrape_configs:
+  # -----------------------------------------------------------
   # Prometheus self-monitoring
-  - job_name: 'prometheus'
+  # -----------------------------------------------------------
+  - job_name: "prometheus"
     static_configs:
-      - targets: ['localhost:9090']
-        labels:
-          service: 'prometheus'
+      - targets: ["localhost:9090"]
 
-  # API Gateway
-  - job_name: 'api-gateway'
+  # -----------------------------------------------------------
+  # Application services
+  # -----------------------------------------------------------
+  - job_name: "alert-ingestor"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['api-gateway:8000']
-        labels:
-          service: 'api-gateway'
-          component: 'gateway'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["alert-ingestor:8001"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "alert-ingestor"
+      - target_label: "component"
+        replacement: "ingestion"
 
-  # Alert Ingestor
-  - job_name: 'alert-ingestor'
+  - job_name: "alert-normalizer"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['alert-ingestor:9001']
-        labels:
-          service: 'alert-ingestor'
-          component: 'ingestion'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["alert-normalizer:8002"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "alert-normalizer"
+      - target_label: "component"
+        replacement: "processing"
 
-  # Alert Normalizer
-  - job_name: 'alert-normalizer'
+  - job_name: "context-collector"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['alert-normalizer:9002']
-        labels:
-          service: 'alert-normalizer'
-          component: 'processing'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["context-collector:8003"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "context-collector"
+      - target_label: "component"
+        replacement: "enrichment"
 
-  # Context Collector
-  - job_name: 'context-collector'
+  - job_name: "threat-intel-aggregator"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['context-collector:9003']
-        labels:
-          service: 'context-collector'
-          component: 'enrichment'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["threat-intel-aggregator:8004"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "threat-intel-aggregator"
+      - target_label: "component"
+        replacement: "threat-intel"
 
-  # Threat Intel Aggregator
-  - job_name: 'threat-intel-aggregator'
+  - job_name: "ai-triage-agent"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['threat-intel-aggregator:9004']
-        labels:
-          service: 'threat-intel-aggregator'
-          component: 'threat-intel'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["ai-triage-agent:8005"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "ai-triage-agent"
+      - target_label: "component"
+        replacement: "ai"
 
-  # LLM Router
-  - job_name: 'llm-router'
+  - job_name: "similarity-search"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['llm-router:9005']
-        labels:
-          service: 'llm-router'
-          component: 'ai'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["similarity-search:8006"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "similarity-search"
+      - target_label: "component"
+        replacement: "search"
 
-  # AI Triage Agent
-  - job_name: 'ai-triage-agent'
+  - job_name: "llm-router"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['ai-triage-agent:9006']
-        labels:
-          service: 'ai-triage-agent'
-          component: 'ai'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["llm-router:8007"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "llm-router"
+      - target_label: "component"
+        replacement: "ai"
 
-  # Similarity Search
-  - job_name: 'similarity-search'
+  - job_name: "workflow-engine"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['similarity-search:9007']
-        labels:
-          service: 'similarity-search'
-          component: 'search'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["workflow-engine:8008"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "workflow-engine"
+      - target_label: "component"
+        replacement: "orchestration"
 
-  # Workflow Engine
-  - job_name: 'workflow-engine'
+  - job_name: "decision-engine"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['workflow-engine:9008']
-        labels:
-          service: 'workflow-engine'
-          component: 'orchestration'
-    metrics_path: '/metrics'
-    scrape_interval: 10s
+      - targets: ["decision-engine:8009"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "decision-engine"
+      - target_label: "component"
+        replacement: "processing"
 
-  # PostgreSQL Exporter
-  - job_name: 'postgres'
+  - job_name: "notification-service"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['postgres-exporter:9187']
-        labels:
-          service: 'postgres'
-          component: 'database'
+      - targets: ["notification-service:8010"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "notification-service"
+      - target_label: "component"
+        replacement: "notification"
+
+  - job_name: "api-gateway"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["api-gateway:8080"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "api-gateway"
+      - target_label: "component"
+        replacement: "gateway"
+
+  # -----------------------------------------------------------
+  # Infrastructure exporters
+  # -----------------------------------------------------------
+  - job_name: "postgres"
     scrape_interval: 30s
-
-  # Redis Exporter
-  - job_name: 'redis'
     static_configs:
-      - targets: ['redis-exporter:9121']
-        labels:
-          service: 'redis'
-          component: 'cache'
+      - targets: ["postgres-exporter:9187"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "postgres"
+      - target_label: "component"
+        replacement: "database"
+
+  - job_name: "redis"
     scrape_interval: 30s
-
-  # RabbitMQ Exporter
-  - job_name: 'rabbitmq'
     static_configs:
-      - targets: ['rabbitmq:15692']
-        labels:
-          service: 'rabbitmq'
-          component: 'message-queue'
+      - targets: ["redis-exporter:9121"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "redis"
+      - target_label: "component"
+        replacement: "cache"
+
+  - job_name: "rabbitmq"
     scrape_interval: 30s
-
-  # Node Exporter (system metrics)
-  - job_name: 'node'
     static_configs:
-      - targets: ['node-exporter:9100']
-        labels:
-          service: 'system'
-          component: 'infrastructure'
+      - targets: ["rabbitmq:15692"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "rabbitmq"
+      - target_label: "component"
+        replacement: "message-queue"
+
+  - job_name: "node"
     scrape_interval: 15s
-
-  # cAdvisor (container metrics)
-  - job_name: 'cadvisor'
     static_configs:
-      - targets: ['cadvisor:8080']
-        labels:
-          service: 'containers'
-          component: 'infrastructure'
+      - targets: ["node-exporter:9100"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "system"
+      - target_label: "component"
+        replacement: "infrastructure"
+
+  - job_name: "cadvisor"
     scrape_interval: 15s
+    static_configs:
+      - targets: ["cadvisor:8081"]
+    relabel_configs:
+      - target_label: "service"
+        replacement: "containers"
+      - target_label: "component"
+        replacement: "infrastructure"
