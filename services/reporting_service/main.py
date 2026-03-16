@@ -45,7 +45,6 @@ from shared.database.repositories.triage_repository import TriageRepository
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
-
 from storage import ReportStorage
 
 logger = get_logger(__name__)
@@ -208,9 +207,7 @@ def _report_to_dict(report: Report) -> Dict[str, Any]:
     }
 
 
-async def _query_alert_stats(
-    session, start_date: datetime, end_date: datetime
-) -> Dict[str, Any]:
+async def _query_alert_stats(session, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Query alert statistics from the database for the given date range."""
     repo = AlertRepository(session)
     try:
@@ -472,11 +469,11 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
 
     # Fallback: reportlab (basic PDF)
     try:
+        from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import cm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-        from reportlab.lib import colors
 
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
@@ -485,7 +482,10 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
 
         # Title
         title_style = ParagraphStyle(
-            "ReportTitle", parent=styles["Heading1"], fontSize=18, spaceAfter=12,
+            "ReportTitle",
+            parent=styles["Heading1"],
+            fontSize=18,
+            spaceAfter=12,
             textColor=colors.HexColor("#1a237e"),
         )
         report_type = report_data.get("report_type", "Report").replace("_", " ").title()
@@ -493,12 +493,18 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 6))
 
         # Meta
-        meta_style = ParagraphStyle("Meta", parent=styles["Normal"], fontSize=9, textColor=colors.gray)
+        meta_style = ParagraphStyle(
+            "Meta", parent=styles["Normal"], fontSize=9, textColor=colors.gray
+        )
         story.append(Paragraph(f"Report ID: {report_data.get('report_id', 'N/A')}", meta_style))
         story.append(Paragraph(f"Generated: {report_data.get('generated_at', 'N/A')}", meta_style))
         period = report_data.get("period", {})
         if period:
-            story.append(Paragraph(f"Period: {period.get('start', '')} to {period.get('end', '')}", meta_style))
+            story.append(
+                Paragraph(
+                    f"Period: {period.get('start', '')} to {period.get('end', '')}", meta_style
+                )
+            )
         story.append(Spacer(1, 12))
 
         # Summary table
@@ -514,16 +520,25 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
                 table_data.append([key.replace("_", " ").title(), formatted])
 
             t = Table(table_data, colWidths=[8 * cm, 8 * cm])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
+            t.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        (
+                            "ROWBACKGROUNDS",
+                            (0, 1),
+                            (-1, -1),
+                            [colors.white, colors.HexColor("#f5f5f5")],
+                        ),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
             story.append(t)
             story.append(Spacer(1, 12))
 
@@ -535,16 +550,25 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
             for key, value in incident.items():
                 table_data.append([key.replace("_", " ").title(), str(value or "N/A")])
             t = Table(table_data, colWidths=[6 * cm, 10 * cm])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
+            t.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        (
+                            "ROWBACKGROUNDS",
+                            (0, 1),
+                            (-1, -1),
+                            [colors.white, colors.HexColor("#f5f5f5")],
+                        ),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
             story.append(t)
             story.append(Spacer(1, 12))
 
@@ -561,7 +585,9 @@ def _format_pdf(report_data: Dict[str, Any]) -> bytes:
         return buf.getvalue()
 
     except ImportError:
-        logger.warning("No PDF library available (weasyprint/xhtml2pdf/reportlab), returning HTML as PDF content")
+        logger.warning(
+            "No PDF library available (weasyprint/xhtml2pdf/reportlab), returning HTML as PDF content"
+        )
     except Exception as e:
         logger.error(f"reportlab PDF generation failed: {e}")
 
@@ -745,15 +771,17 @@ async def _handle_report_request(message: Dict[str, Any]) -> None:
     if db_manager:
         async with db_manager.get_session() as session:
             repo = ReportRepository(session)
-            await repo.create_report({
-                "report_id": report_id,
-                "name": params.get("name", f"{report_type} Report"),
-                "report_type": report_type,
-                "format": report_format,
-                "status": ReportStatus.PENDING.value,
-                "filters": params.get("filters"),
-                "created_by": params.get("created_by", "mq-consumer"),
-            })
+            await repo.create_report(
+                {
+                    "report_id": report_id,
+                    "name": params.get("name", f"{report_type} Report"),
+                    "report_type": report_type,
+                    "format": report_format,
+                    "status": ReportStatus.PENDING.value,
+                    "filters": params.get("filters"),
+                    "created_by": params.get("created_by", "mq-consumer"),
+                }
+            )
             await session.commit()
 
     await _run_report_generation(report_id, report_type, report_format, params)
@@ -791,9 +819,7 @@ async def lifespan(app: FastAPI):
             publisher = MessagePublisher(amqp_url, exchange_name="reports")
             await publisher.connect()
 
-            consumer = MessageConsumer(
-                amqp_url, queue_name="report.requests", prefetch_count=5
-            )
+            consumer = MessageConsumer(amqp_url, queue_name="report.requests", prefetch_count=5)
             await consumer.connect()
             await consumer.subscribe(_handle_report_request)
             logger.info("Message queue connected")
@@ -860,19 +886,21 @@ async def generate_report(body: ReportGenerateRequest, background_tasks: Backgro
         if db_manager:
             async with db_manager.get_session() as session:
                 repo = ReportRepository(session)
-                await repo.create_report({
-                    "report_id": report_id,
-                    "name": name,
-                    "description": body.description,
-                    "report_type": body.report_type.value,
-                    "format": body.format.value,
-                    "status": ReportStatus.PENDING.value,
-                    "filters": body.filters,
-                    "created_by": "api",
-                    "schedule_frequency": body.schedule_frequency,
-                    "schedule_time": body.schedule_time,
-                    "schedule_recipients": body.schedule_recipients,
-                })
+                await repo.create_report(
+                    {
+                        "report_id": report_id,
+                        "name": name,
+                        "description": body.description,
+                        "report_type": body.report_type.value,
+                        "format": body.format.value,
+                        "status": ReportStatus.PENDING.value,
+                        "filters": body.filters,
+                        "created_by": "api",
+                        "schedule_frequency": body.schedule_frequency,
+                        "schedule_time": body.schedule_time,
+                        "schedule_recipients": body.schedule_recipients,
+                    }
+                )
                 await session.commit()
 
         # Schedule background generation
@@ -979,7 +1007,9 @@ async def download_report(report_id: str, format: Optional[ReportFormat] = None)
             return Response(
                 content=file_bytes,
                 media_type=content_types.get(output_format, "application/octet-stream"),
-                headers={"Content-Disposition": f"attachment; filename={report_id}.{output_format}"},
+                headers={
+                    "Content-Disposition": f"attachment; filename={report_id}.{output_format}"
+                },
             )
 
     # Fall back to re-rendering from report_data

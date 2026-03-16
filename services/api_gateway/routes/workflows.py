@@ -41,6 +41,7 @@ WORKFLOW_ENGINE_URL = os.getenv(
 # Request / Response Helpers
 # =============================================================================
 
+
 class AssignAlertRequest(BaseModel):
     """Request body for assigning an alert."""
 
@@ -127,6 +128,7 @@ async def _proxy_request(
 # Assign Alert
 # =============================================================================
 
+
 @router.post(
     "/alerts/{alert_id}/assign",
     summary="Assign Alert",
@@ -155,6 +157,7 @@ async def assign_alert(alert_id: str, request: AssignAlertRequest):
 # Escalate Alert
 # =============================================================================
 
+
 @router.post(
     "/alerts/{alert_id}/escalate",
     summary="Escalate Alert",
@@ -182,6 +185,7 @@ async def escalate_alert(alert_id: str, request: EscalateAlertRequest):
 # =============================================================================
 # List Workflows
 # =============================================================================
+
 
 @router.get(
     "/workflows",
@@ -219,6 +223,7 @@ async def list_workflows(
 # =============================================================================
 # Get Workflow Details
 # =============================================================================
+
 
 @router.get(
     "/workflows/{workflow_id}",

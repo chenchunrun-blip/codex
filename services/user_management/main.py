@@ -21,15 +21,17 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pyotp
-
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from shared.auth import (
+    ROLE_PERMISSIONS,
     AuditAction,
     AuthConfig,
     Permission,
-    ROLE_PERMISSIONS,
+)
+from shared.auth import User as AuthUser
+from shared.auth import (
     UserRole,
     create_access_token,
     create_refresh_token,
@@ -39,7 +41,6 @@ from shared.auth import (
     log_audit_event,
     verify_password,
 )
-from shared.auth import User as AuthUser
 from shared.database import DatabaseManager, get_database_manager
 from shared.database.models import AuditLog
 from shared.database.repositories.user_repository import UserRepository
@@ -132,9 +133,11 @@ def _user_to_dict(user) -> Dict[str, Any]:
         "email": user.email,
         "full_name": user.full_name,
         "role": user.role,
-        "permissions": [p.value for p in get_user_permissions(UserRole(user.role))]
-        if user.role in [r.value for r in UserRole]
-        else [],
+        "permissions": (
+            [p.value for p in get_user_permissions(UserRole(user.role))]
+            if user.role in [r.value for r in UserRole]
+            else []
+        ),
         "is_active": user.is_active,
         "is_verified": user.is_verified,
         "phone": user.phone,
@@ -454,7 +457,9 @@ async def create_user(body: UserCreateRequest, request: Request):
     # Validate role
     valid_roles = [r.value for r in UserRole]
     if body.role not in valid_roles:
-        raise HTTPException(status_code=400, detail=f"Invalid role: {body.role}. Valid: {valid_roles}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid role: {body.role}. Valid: {valid_roles}"
+        )
 
     async with db_manager.get_session() as session:
         repo = UserRepository(session)
@@ -643,7 +648,9 @@ async def change_user_role(user_id: str, body: RoleChangeRequest, request: Reque
 
     valid_roles = [r.value for r in UserRole]
     if body.role not in valid_roles:
-        raise HTTPException(status_code=400, detail=f"Invalid role: {body.role}. Valid: {valid_roles}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid role: {body.role}. Valid: {valid_roles}"
+        )
 
     if not db_manager:
         raise HTTPException(status_code=503, detail="Database not available")

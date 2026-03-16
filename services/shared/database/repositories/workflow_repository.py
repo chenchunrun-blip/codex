@@ -18,10 +18,9 @@ Workflow repository for automation workflows and executions.
 
 from typing import Any, Dict, List, Optional
 
+from shared.database.models import Workflow, WorkflowExecution
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from shared.database.models import Workflow, WorkflowExecution
 
 
 class WorkflowRepository:
@@ -232,9 +231,7 @@ class WorkflowRepository:
             Updated WorkflowExecution object or None
         """
         result = await self.session.execute(
-            select(WorkflowExecution).where(
-                WorkflowExecution.execution_id == execution_id
-            )
+            select(WorkflowExecution).where(WorkflowExecution.execution_id == execution_id)
         )
         execution = result.scalar_one_or_none()
 
@@ -256,8 +253,6 @@ class WorkflowRepository:
             WorkflowExecution object or None
         """
         result = await self.session.execute(
-            select(WorkflowExecution).where(
-                WorkflowExecution.execution_id == execution_id
-            )
+            select(WorkflowExecution).where(WorkflowExecution.execution_id == execution_id)
         )
         return result.scalar_one_or_none()

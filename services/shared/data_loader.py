@@ -213,11 +213,7 @@ class JSONDataLoader:
             List of IOC dictionaries
         """
         iocs = self._iocs.get("iocs", [])
-        return [
-            ioc
-            for ioc in iocs
-            if ioc.get("ioc_type") == ioc_type and ioc.get("active", True)
-        ]
+        return [ioc for ioc in iocs if ioc.get("ioc_type") == ioc_type and ioc.get("active", True)]
 
     def is_malicious_ioc(self, ioc_value: str) -> tuple[bool, Optional[Dict[str, Any]]]:
         """

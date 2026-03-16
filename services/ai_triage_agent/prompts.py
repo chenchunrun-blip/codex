@@ -29,14 +29,21 @@ logger = get_logger(__name__)
 def _escape_prompt_braces(text: str) -> str:
     """Escape braces in prompt JSON examples while preserving format placeholders."""
     # Escape all braces first
-    result = text.replace('{', '{{').replace('}', '}}')
+    result = text.replace("{", "{{").replace("}", "}}")
     # Unescape the placeholders we need
-    placeholders = ['alert_details', 'threat_intel', 'network_context',
-                   'asset_context', 'user_context', 'historical_context',
-                   'correlation_context']
+    placeholders = [
+        "alert_details",
+        "threat_intel",
+        "network_context",
+        "asset_context",
+        "user_context",
+        "historical_context",
+        "correlation_context",
+    ]
     for ph in placeholders:
-        result = result.replace('{{' + ph + '}}', '{' + ph + '}')
+        result = result.replace("{{" + ph + "}}", "{" + ph + "}")
     return result
+
 
 class PromptTemplates:
     """Prompt templates for LLM-based alert analysis."""
@@ -55,7 +62,8 @@ Focus on:
 - Consideration of business impact and technical feasibility"""
 
     # Alert-specific prompts (with JSON braces escaped)
-    MALWARE_ANALYSIS_PROMPT = _escape_prompt_braces("""Analyze this malware-related security alert and provide a comprehensive triage assessment.
+    MALWARE_ANALYSIS_PROMPT = _escape_prompt_braces(
+        """Analyze this malware-related security alert and provide a comprehensive triage assessment.
 
 ALERT DETAILS:
 {alert_details}
@@ -124,9 +132,11 @@ Provide your analysis in the following JSON format:
   "requires_human_review": true/false,
   "escalation_trigger": "Condition that should trigger escalation",
   "additional_notes": "Any other relevant information"
-}""")
+}"""
+    )
 
-    PHISHING_ANALYSIS_PROMPT = _escape_prompt_braces("""Analyze this phishing-related security alert and provide a comprehensive triage assessment.
+    PHISHING_ANALYSIS_PROMPT = _escape_prompt_braces(
+        """Analyze this phishing-related security alert and provide a comprehensive triage assessment.
 
 ALERT DETAILS:
 {alert_details}
@@ -186,9 +196,11 @@ Provide your analysis in the following JSON format:
   "requires_human_review": true/false,
   "escalation_trigger": "Condition triggering escalation",
   "additional_notes": "Any other relevant information"
-}""")
+}"""
+    )
 
-    BRUTE_FORCE_ANALYSIS_PROMPT = _escape_prompt_braces("""Analyze this brute force authentication attack alert and provide a comprehensive triage assessment.
+    BRUTE_FORCE_ANALYSIS_PROMPT = _escape_prompt_braces(
+        """Analyze this brute force authentication attack alert and provide a comprehensive triage assessment.
 
 ALERT DETAILS:
 {alert_details}
@@ -252,9 +264,11 @@ Provide your analysis in the following JSON format:
   "requires_human_review": true/false,
   "escalation_trigger": "Condition triggering escalation",
   "additional_notes": "Any other relevant information"
-}""")
+}"""
+    )
 
-    DATA_EXFILTRATION_ANALYSIS_PROMPT = _escape_prompt_braces("""Analyze this data exfiltration alert and provide a comprehensive triage assessment.
+    DATA_EXFILTRATION_ANALYSIS_PROMPT = _escape_prompt_braces(
+        """Analyze this data exfiltration alert and provide a comprehensive triage assessment.
 
 ALERT DETAILS:
 {alert_details}
@@ -323,9 +337,11 @@ Provide your analysis in the following JSON format:
   "requires_human_review": true/false,
   "escalation_trigger": "Always escalate for data exfiltration",
   "additional_notes": "Any other relevant information"
-}""")
+}"""
+    )
 
-    GENERAL_ANALYSIS_PROMPT = _escape_prompt_braces("""Analyze this security alert and provide a comprehensive triage assessment.
+    GENERAL_ANALYSIS_PROMPT = _escape_prompt_braces(
+        """Analyze this security alert and provide a comprehensive triage assessment.
 
 ALERT DETAILS:
 {alert_details}
@@ -373,7 +389,8 @@ Provide your analysis in the following JSON format:
   "requires_human_review": true/false,
   "escalation_trigger": "Condition triggering escalation",
   "additional_notes": "Any other relevant information"
-}""")
+}"""
+    )
 
     @classmethod
     def get_prompt_for_alert_type(cls, alert_type: str, **kwargs) -> str:
@@ -460,13 +477,13 @@ Provide your analysis in the following JSON format:
             f"Title: {alert.get('title', alert.get('description', 'N/A'))}",
         ]
 
-        if alert.get('source_ip'):
+        if alert.get("source_ip"):
             details.append(f"Source IP: {alert['source_ip']}")
-        if alert.get('target_ip'):
+        if alert.get("target_ip"):
             details.append(f"Target IP: {alert['target_ip']}")
-        if alert.get('file_hash'):
+        if alert.get("file_hash"):
             details.append(f"File Hash: {alert['file_hash']}")
-        if alert.get('url'):
+        if alert.get("url"):
             details.append(f"URL: {alert['url']}")
 
         return "\n".join(details)
@@ -483,11 +500,13 @@ Provide your analysis in the following JSON format:
             f"Sources Queried: {', '.join(threat_intel.get('queried_sources', []))}",
         ]
 
-        detections = threat_intel.get('detections', [])
+        detections = threat_intel.get("detections", [])
         if detections:
             lines.append("\nDetections:")
             for detection in detections[:5]:
-                lines.append(f"  - {detection.get('source', 'N/A')}: {detection.get('detection_rate', 0)}% detection rate")
+                lines.append(
+                    f"  - {detection.get('source', 'N/A')}: {detection.get('detection_rate', 0)}% detection rate"
+                )
 
         return "\n".join(lines)
 
@@ -498,16 +517,16 @@ Provide your analysis in the following JSON format:
             return "No network context available"
 
         lines = []
-        if network_context.get('is_internal'):
+        if network_context.get("is_internal"):
             lines.append("Internal IP address")
         else:
             lines.append("External IP address")
 
-        if network_context.get('geolocation'):
-            geo = network_context['geolocation']
+        if network_context.get("geolocation"):
+            geo = network_context["geolocation"]
             lines.append(f"Location: {geo.get('country', 'N/A')}")
 
-        reputation = network_context.get('reputation', {})
+        reputation = network_context.get("reputation", {})
         if reputation:
             lines.append(f"Reputation Score: {reputation.get('score', 'N/A')}")
 
@@ -525,7 +544,7 @@ Provide your analysis in the following JSON format:
             f"Criticality: {asset_context.get('criticality', 'N/A')}",
         ]
 
-        if asset_context.get('owner'):
+        if asset_context.get("owner"):
             lines.append(f"Owner: {asset_context['owner']}")
 
         return "\n".join(lines)
@@ -540,9 +559,9 @@ Provide your analysis in the following JSON format:
             f"User: {user_context.get('username', user_context.get('email', 'N/A'))}",
         ]
 
-        if user_context.get('department'):
+        if user_context.get("department"):
             lines.append(f"Department: {user_context['department']}")
-        if user_context.get('title'):
+        if user_context.get("title"):
             lines.append(f"Title: {user_context['title']}")
 
         return "\n".join(lines) if lines else "No additional user details"
@@ -553,7 +572,7 @@ Provide your analysis in the following JSON format:
         if not historical_context:
             return "No historical patterns available"
 
-        similar_count = len(historical_context.get('similar_alerts', []))
+        similar_count = len(historical_context.get("similar_alerts", []))
         if similar_count > 0:
             return f"Found {similar_count} similar alerts in the past 30 days"
         else:

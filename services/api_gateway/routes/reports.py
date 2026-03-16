@@ -42,6 +42,7 @@ REPORTING_URL = os.getenv(
 # Request / Response Helpers
 # =============================================================================
 
+
 class GenerateReportRequest(BaseModel):
     """Request body for generating a report."""
 
@@ -77,6 +78,7 @@ def _wrap_response(
 # =============================================================================
 # Generate Report
 # =============================================================================
+
 
 @router.post(
     "/reports",
@@ -123,6 +125,7 @@ async def generate_report(request: GenerateReportRequest):
 # =============================================================================
 # Download Report
 # =============================================================================
+
 
 @router.get(
     "/reports/{report_id}/download",

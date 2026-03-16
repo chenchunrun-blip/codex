@@ -27,14 +27,14 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from jinja2 import Template
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from jinja2 import Template
 from shared.database import DatabaseManager, get_database_manager
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
 from shared.utils.prometheus import setup_prometheus
+from sqlalchemy import text
 
 logger = get_logger(__name__)
 config = Config()
@@ -298,7 +298,9 @@ async def send_wechat_work(
         return {"success": False, "channel": "wechat_work", "error": str(e)}
 
 
-async def send_teams(webhook_url: str, title: str, message: str, summary: Optional[str] = None) -> Dict[str, Any]:
+async def send_teams(
+    webhook_url: str, title: str, message: str, summary: Optional[str] = None
+) -> Dict[str, Any]:
     """Send Microsoft Teams notification."""
     try:
         payload = {
@@ -587,8 +589,7 @@ def _check_throttle(recipient: str) -> bool:
     # Clean up old entries and count recent sends
     if recipient in _throttle_tracker:
         _throttle_tracker[recipient] = [
-            ts for ts in _throttle_tracker[recipient]
-            if ts.timestamp() > window_start
+            ts for ts in _throttle_tracker[recipient] if ts.timestamp() > window_start
         ]
     else:
         _throttle_tracker[recipient] = []
@@ -866,12 +867,21 @@ async def escalate_notification_api(
     try:
         if background_tasks:
             background_tasks.add_task(
-                send_with_escalation, channels, recipients_by_level, subject, message, priority, data
+                send_with_escalation,
+                channels,
+                recipients_by_level,
+                subject,
+                message,
+                priority,
+                data,
             )
             return {
                 "success": True,
                 "data": {"message": "Escalation started in background"},
-                "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+                "meta": {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "request_id": str(uuid.uuid4()),
+                },
             }
 
         result = await send_with_escalation(
@@ -894,7 +904,10 @@ async def acknowledge_notification(escalation_id: str, level: int = 0):
     ack_key = f"esc:{escalation_id}:level:{level}"
     if ack_key in _pending_acks:
         del _pending_acks[ack_key]
-        return {"success": True, "message": f"Escalation {escalation_id} level {level} acknowledged"}
+        return {
+            "success": True,
+            "message": f"Escalation {escalation_id} level {level} acknowledged",
+        }
     return {"success": False, "message": "Escalation not found or already resolved"}
 
 
@@ -924,7 +937,11 @@ async def send_templated_notification(
 
     try:
         result = await send_notification(
-            channel, recipient, rendered["subject"], rendered["body"], priority,
+            channel,
+            recipient,
+            rendered["subject"],
+            rendered["body"],
+            priority,
         )
 
         return {
@@ -952,10 +969,7 @@ async def get_throttle_status(recipient: str):
     # Count recent sends within the window
     recent_sends = []
     if recipient in _throttle_tracker:
-        recent_sends = [
-            ts for ts in _throttle_tracker[recipient]
-            if ts.timestamp() > window_start
-        ]
+        recent_sends = [ts for ts in _throttle_tracker[recipient] if ts.timestamp() > window_start]
 
     current_count = len(recent_sends)
     remaining = max(0, THROTTLE_MAX_PER_WINDOW - current_count)

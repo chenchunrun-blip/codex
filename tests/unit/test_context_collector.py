@@ -1,15 +1,15 @@
 """Unit tests for Context Collector service - IP detection, context collection, caching."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Internal IP Detection
 # ---------------------------------------------------------------------------
+
 
 class TestInternalIPDetection:
     """Test RFC 1918 / private IP detection."""
@@ -56,6 +56,7 @@ class TestInternalIPDetection:
 # Subnet Detection
 # ---------------------------------------------------------------------------
 
+
 class TestSubnetDetection:
     """Test subnet calculation for internal IPs."""
 
@@ -94,12 +95,13 @@ class TestSubnetDetection:
 # Network Context Collection
 # ---------------------------------------------------------------------------
 
+
 class TestNetworkContext:
     """Test network context collection."""
 
     @pytest.mark.asyncio
     async def test_internal_ip_context(self):
-        from services.context_collector.main import get_network_context, context_cache
+        from services.context_collector.main import context_cache, get_network_context
 
         # Clear cache
         cache_keys = [k for k in context_cache if k.startswith("network:10.0.0")]
@@ -115,7 +117,7 @@ class TestNetworkContext:
 
     @pytest.mark.asyncio
     async def test_external_ip_context(self):
-        from services.context_collector.main import get_network_context, context_cache
+        from services.context_collector.main import context_cache, get_network_context
 
         cache_keys = [k for k in context_cache if k.startswith("network:8.8.8")]
         for k in cache_keys:
@@ -128,7 +130,7 @@ class TestNetworkContext:
 
     @pytest.mark.asyncio
     async def test_context_caching(self):
-        from services.context_collector.main import get_network_context, context_cache
+        from services.context_collector.main import context_cache, get_network_context
 
         # Clear cache
         cache_keys = [k for k in context_cache if k.startswith("network:10.1.1")]
@@ -147,6 +149,7 @@ class TestNetworkContext:
 # ---------------------------------------------------------------------------
 # Alert Enrichment
 # ---------------------------------------------------------------------------
+
 
 class TestAlertEnrichment:
     """Test alert enrichment pipeline."""

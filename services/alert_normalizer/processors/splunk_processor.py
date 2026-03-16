@@ -104,15 +104,25 @@ class SplunkProcessor:
             description = self._extract_description(raw_alert)
 
             # Extract network information
-            source_ip = self._extract_field(raw_alert, ["src_ip", "source_ip", "src", "src_address"])
-            target_ip = self._extract_field(raw_alert, ["dest_ip", "destination_ip", "dest", "dst_ip", "dest_address"])
+            source_ip = self._extract_field(
+                raw_alert, ["src_ip", "source_ip", "src", "src_address"]
+            )
+            target_ip = self._extract_field(
+                raw_alert, ["dest_ip", "destination_ip", "dest", "dst_ip", "dest_address"]
+            )
             source_port = self._extract_port(raw_alert, ["src_port", "source_port"])
-            destination_port = self._extract_port(raw_alert, ["dest_port", "destination_port", "dst_port"])
+            destination_port = self._extract_port(
+                raw_alert, ["dest_port", "destination_port", "dst_port"]
+            )
             protocol = self._extract_field(raw_alert, ["protocol", "transport"])
 
             # Extract entity references
-            asset_id = self._extract_field(raw_alert, ["asset_id", "asset", "host", "hostname", "dest_host"])
-            user_id = self._extract_field(raw_alert, ["user_id", "user", "username", "account", "dest_user"])
+            asset_id = self._extract_field(
+                raw_alert, ["asset_id", "asset", "host", "hostname", "dest_host"]
+            )
+            user_id = self._extract_field(
+                raw_alert, ["user_id", "user", "username", "account", "dest_user"]
+            )
 
             # Extract threat-specific fields
             file_hash = self._extract_file_hash(raw_alert)
@@ -179,11 +189,7 @@ class SplunkProcessor:
             return str(raw_alert["alert_id"])
 
         # Priority order for other alert ID fields
-        alert_id = (
-            raw_alert.get("result_id")
-            or raw_alert.get("sid")
-            or raw_alert.get("id")
-        )
+        alert_id = raw_alert.get("result_id") or raw_alert.get("sid") or raw_alert.get("id")
 
         if not alert_id:
             # Generate ID from signature fields
@@ -198,6 +204,7 @@ class SplunkProcessor:
         if not alert_id:
             # Generate unique ID
             import uuid
+
             alert_id = f"SPLUNK-{uuid.uuid4()}"
 
         return str(alert_id)
@@ -219,13 +226,13 @@ class SplunkProcessor:
                     # Try common Splunk timestamp formats
                     formats = [
                         "%Y-%m-%dT%H:%M:%S.%fZ",  # ISO with microseconds
-                        "%Y-%m-%dT%H:%M:%SZ",     # ISO format
-                        "%Y-%m-%dT%H:%M:%S.%f",   # ISO without Z
-                        "%Y-%m-%dT%H:%M:%S",      # ISO without timezone
-                        "%Y-%m-%d %H:%M:%S",      # Space separated
-                        "%Y-%m-%d %H:%M:%S.%f",   # Space with microseconds
-                        "%d/%m/%Y:%H:%M:%S",      # Splunk default
-                        "%m/%d/%Y:%H:%M:%S",      # US format
+                        "%Y-%m-%dT%H:%M:%SZ",  # ISO format
+                        "%Y-%m-%dT%H:%M:%S.%f",  # ISO without Z
+                        "%Y-%m-%dT%H:%M:%S",  # ISO without timezone
+                        "%Y-%m-%d %H:%M:%S",  # Space separated
+                        "%Y-%m-%d %H:%M:%S.%f",  # Space with microseconds
+                        "%d/%m/%Y:%H:%M:%S",  # Splunk default
+                        "%m/%d/%Y:%H:%M:%S",  # US format
                     ]
 
                     for fmt in formats:
@@ -376,8 +383,7 @@ class SplunkProcessor:
         # Filter out common non-domain patterns
         tlds = [".com", ".org", ".net", ".edu", ".gov", ".mil", ".io", ".co", ".uk"]
         iocs["domains"] = [
-            domain for domain in domain_matches
-            if any(tld in domain.lower() for tld in tlds)
+            domain for domain in domain_matches if any(tld in domain.lower() for tld in tlds)
         ]
 
         # Extract email addresses

@@ -18,6 +18,7 @@ Zhipu AI (GLM) LLM Client for Security Alert Triage
 
 import os
 from typing import Any, Dict, List, Optional
+
 import httpx
 from loguru import logger
 
@@ -234,10 +235,12 @@ class ZhipuAIClient:
                 results.append(result)
             except Exception as e:
                 logger.error(f"Failed to analyze alert {alert.get('id')}: {e}")
-                results.append({
-                    "alert_id": alert.get("id"),
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "alert_id": alert.get("id"),
+                        "error": str(e),
+                    }
+                )
 
         return results
 
@@ -715,4 +718,3 @@ Target: {alert_data.get('target', 'N/A')}
         except Exception as e:
             logger.exception(f"Error analyzing alert: {e}")
             raise
-

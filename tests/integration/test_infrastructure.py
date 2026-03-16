@@ -123,47 +123,39 @@ class TestPostgreSQL:
         cursor = db_connection.cursor()
 
         # Check for alerts table
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'alerts'
             )
-        """
-        )
+        """)
         assert cursor.fetchone()[0] is True, "alerts table does not exist"
 
         # Check for triage_results table
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'triage_results'
             )
-        """
-        )
+        """)
         assert cursor.fetchone()[0] is True, "triage_results table does not exist"
 
         # Check for remediation_actions table
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'remediation_actions'
             )
-        """
-        )
+        """)
         assert cursor.fetchone()[0] is True, "remediation_actions table does not exist"
 
         # Check for threat_intel table (note: table name is threat_intel not threat_intelligence)
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'threat_intel'
             )
-        """
-        )
+        """)
         assert cursor.fetchone()[0] is True, "threat_intel table does not exist"
 
         print("✓ All required tables exist")
@@ -173,12 +165,10 @@ class TestPostgreSQL:
         cursor = db_connection.cursor()
 
         # Check for alerts table indexes
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT indexname FROM pg_indexes
             WHERE tablename = 'alerts'
-        """
-        )
+        """)
         indexes = [row[0] for row in cursor.fetchall()]
 
         # Note: alert_id has a unique constraint (alerts_alert_id_key) instead of an index
@@ -214,7 +204,14 @@ class TestPostgreSQL:
             VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
         """,
-            (test_alert_id, datetime.now(), "malware", "low", "Test Alert", "Test alert for integration testing"),
+            (
+                test_alert_id,
+                datetime.now(),
+                "malware",
+                "low",
+                "Test Alert",
+                "Test alert for integration testing",
+            ),
         )
 
         alert_id = cursor.fetchone()[0]
@@ -462,7 +459,7 @@ class TestRabbitMQ:
         if not existing_exchanges:
             test_exchange = f"test.exchange.{datetime.now().strftime('%Y%m%d%H%M%S')}"
             test_channel = rabbitmq_connection.channel()
-            test_channel.exchange_declare(exchange=test_exchange, exchange_type='direct')
+            test_channel.exchange_declare(exchange=test_exchange, exchange_type="direct")
             test_channel.exchange_delete(exchange=test_exchange)
             test_channel.close()
             print(f"✓ RabbitMQ exchange creation/deletion works (test exchange: {test_exchange})")

@@ -27,10 +27,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from aio_pika import ExchangeType, RobustConnection
 from aio_pika.exceptions import AMQPError
-
 from shared.messaging.consumer import BatchConsumer, MessageConsumer
 from shared.messaging.publisher import MessagePublisher, TransactionalPublisher
-
 
 # =============================================================================
 # Test Configuration
@@ -48,6 +46,7 @@ TEST_EXCHANGE = "test.exchange"
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture(scope="function")
 async def publisher():
@@ -93,6 +92,7 @@ def sample_message() -> Dict:
 # =============================================================================
 # Publisher Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.message_queue
@@ -144,10 +144,7 @@ class TestMessagePublisher:
 
     async def test_publish_batch_messages(self, publisher, sample_message):
         """Test publishing multiple messages in batch."""
-        messages = [
-            {**sample_message, "alert_id": f"alert-{i}"}
-            for i in range(5)
-        ]
+        messages = [{**sample_message, "alert_id": f"alert-{i}"} for i in range(5)]
 
         result = await publisher.publish_batch(
             messages=messages,
@@ -254,6 +251,7 @@ class TestMessagePublisher:
 # =============================================================================
 # Consumer Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.message_queue
@@ -365,6 +363,7 @@ class TestMessageConsumer:
 # Error Handling and Retry Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 @pytest.mark.message_queue
 class TestErrorHandling:
@@ -393,9 +392,7 @@ class TestErrorHandling:
             pass
 
         # Start consumption
-        consume_task = asyncio.create_task(
-            consumer.consume(failing_callback, error_callback)
-        )
+        consume_task = asyncio.create_task(consumer.consume(failing_callback, error_callback))
 
         # Wait for retry
         await asyncio.wait_for(consume_task, timeout=10.0)
@@ -453,9 +450,7 @@ class TestErrorHandling:
             await consumer.stop_consuming()
 
         # Start consumption
-        consume_task = asyncio.create_task(
-            consumer.consume(failing_callback, error_callback)
-        )
+        consume_task = asyncio.create_task(consumer.consume(failing_callback, error_callback))
 
         # Wait for error callback
         await asyncio.wait_for(consume_task, timeout=5.0)
@@ -467,6 +462,7 @@ class TestErrorHandling:
 # =============================================================================
 # Dead Letter Queue Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.message_queue
@@ -533,6 +529,7 @@ class TestDeadLetterQueue:
 # =============================================================================
 # Batch Consumer Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.message_queue
@@ -609,6 +606,7 @@ class TestBatchConsumer:
 # Transactional Publisher Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 @pytest.mark.message_queue
 class TestTransactionalPublisher:
@@ -632,10 +630,7 @@ class TestTransactionalPublisher:
         await transactional_publisher.begin_transaction()
 
         # Publish messages in transaction
-        messages = [
-            {**sample_message, "alert_id": f"alert-{i}"}
-            for i in range(3)
-        ]
+        messages = [{**sample_message, "alert_id": f"alert-{i}"} for i in range(3)]
 
         for message in messages:
             await transactional_publisher.publish(
@@ -693,10 +688,7 @@ class TestTransactionalPublisher:
 
     async def test_publish_in_transaction(self, transactional_publisher, consumer, sample_message):
         """Test publish_in_transaction method."""
-        messages = [
-            {**sample_message, "alert_id": f"alert-{i}"}
-            for i in range(3)
-        ]
+        messages = [{**sample_message, "alert_id": f"alert-{i}"} for i in range(3)]
 
         # Publish in transaction
         success = await transactional_publisher.publish_in_transaction(
@@ -723,6 +715,7 @@ class TestTransactionalPublisher:
 # =============================================================================
 # End-to-End Message Flow Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.message_queue

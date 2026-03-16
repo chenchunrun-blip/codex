@@ -247,9 +247,7 @@ class AlertClusteringEngine:
         self.total_clustered += 1
         self.total_new_clusters += 1
 
-        logger.info(
-            f"Created new cluster {cluster_id} with {cluster.alert_count} alerts"
-        )
+        logger.info(f"Created new cluster {cluster_id} with {cluster.alert_count} alerts")
         return cluster
 
     def get_cluster(self, alert_id: str) -> Optional[AlertCluster]:
@@ -264,16 +262,14 @@ class AlertClusteringEngine:
         """
         now = datetime.utcnow()
         expired_ids = [
-            cid for cid, cluster in self.clusters.items()
+            cid
+            for cid, cluster in self.clusters.items()
             if (now - cluster.last_updated) > self.cluster_ttl
         ]
 
         # If still over capacity after TTL eviction, evict oldest first
         if len(self.clusters) - len(expired_ids) > self.MAX_CLUSTERS:
-            remaining = [
-                (cid, c) for cid, c in self.clusters.items()
-                if cid not in expired_ids
-            ]
+            remaining = [(cid, c) for cid, c in self.clusters.items() if cid not in expired_ids]
             remaining.sort(key=lambda x: x[1].last_updated)
             overage = len(remaining) - self.MAX_CLUSTERS
             if overage > 0:

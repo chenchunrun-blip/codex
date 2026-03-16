@@ -36,6 +36,10 @@ python-multipart==0.0.17
 aiohttp==3.10.11
 asyncio==3.4.3
 
+# Authentication
+pyotp==2.9.0
+python-jose[cryptography]==3.3.0
+
 # Utilities
 requests==2.32.3
 python-dateutil==2.9.0

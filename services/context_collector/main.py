@@ -32,12 +32,12 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.data_loader import get_data_loader
+from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
+from sqlalchemy import text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -358,7 +358,9 @@ async def enrich_alert(alert: SecurityAlert) -> Dict[str, Any]:
         "enrichment_sources": [],
     }
 
-    logger.info(f"Enriching alert {alert.alert_id}: asset_id={alert.asset_id}, user_id={alert.user_id}, source_ip={alert.source_ip}, target_ip={alert.target_ip}")
+    logger.info(
+        f"Enriching alert {alert.alert_id}: asset_id={alert.asset_id}, user_id={alert.user_id}, source_ip={alert.source_ip}, target_ip={alert.target_ip}"
+    )
 
     # Collect network context
     if alert.source_ip:
@@ -529,6 +531,7 @@ async def persist_context_to_db(alert_id: str, enrichment: Dict[str, Any]):
         enrichment: Enrichment data dictionary
     """
     import json
+
     try:
         async with db_manager.get_session() as session:
             # Save network context for source IP
@@ -544,7 +547,7 @@ async def persist_context_to_db(alert_id: str, enrichment: Dict[str, Any]):
                         "context_data": json.dumps(enrichment["source_network"]),
                         "source": "context-collector",
                         "confidence_score": 0.8,
-                    }
+                    },
                 )
 
             # Save asset context
@@ -560,7 +563,7 @@ async def persist_context_to_db(alert_id: str, enrichment: Dict[str, Any]):
                         "context_data": json.dumps(enrichment["asset"]),
                         "source": "context-collector",
                         "confidence_score": 0.9,
-                    }
+                    },
                 )
 
             # Save user context
@@ -576,7 +579,7 @@ async def persist_context_to_db(alert_id: str, enrichment: Dict[str, Any]):
                         "context_data": json.dumps(enrichment["user"]),
                         "source": "context-collector",
                         "confidence_score": 0.9,
-                    }
+                    },
                 )
 
             await session.commit()
@@ -651,7 +654,10 @@ async def consume_alerts():
                     )
 
                 except Exception as e:
-                    logger.error(f"Failed to enrich alert {alert_data.get('alert_id', 'unknown')}: {e}", exc_info=True)
+                    logger.error(
+                        f"Failed to enrich alert {alert_data.get('alert_id', 'unknown')}: {e}",
+                        exc_info=True,
+                    )
                     # Continue with next alert in batch
                     continue
 

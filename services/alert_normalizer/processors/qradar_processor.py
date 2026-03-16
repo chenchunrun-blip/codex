@@ -108,11 +108,17 @@ class QRadarProcessor:
             description = self._extract_description(raw_alert)
 
             # Extract network information
-            source_ip = self._extract_field(raw_alert, ["source_ip", "src_address", "source_address"])
-            target_ip = self._extract_field(raw_alert, ["destination_ip", "dest_address", "destination_address"])
+            source_ip = self._extract_field(
+                raw_alert, ["source_ip", "src_address", "source_address"]
+            )
+            target_ip = self._extract_field(
+                raw_alert, ["destination_ip", "dest_address", "destination_address"]
+            )
             source_port = self._extract_port(raw_alert, ["source_port", "src_port"])
             destination_port = self._extract_port(raw_alert, ["destination_port", "dest_port"])
-            protocol = self._extract_field(raw_alert, ["protocol", "transport_protocol", "layer4_protocol"])
+            protocol = self._extract_field(
+                raw_alert, ["protocol", "transport_protocol", "layer4_protocol"]
+            )
 
             # Extract entity references
             asset_id = self._extract_field(raw_alert, ["asset_id", "host_name", "destination_host"])
@@ -180,17 +186,14 @@ class QRadarProcessor:
     def _extract_alert_id(self, raw_alert: Dict[str, Any]) -> str:
         """Extract alert ID from QRadar alert."""
         # QRadar uses offense_id as primary identifier
-        alert_id = (
-            raw_alert.get("offense_id")
-            or raw_alert.get("id")
-            or raw_alert.get("alert_id")
-        )
+        alert_id = raw_alert.get("offense_id") or raw_alert.get("id") or raw_alert.get("alert_id")
 
         if alert_id:
             return f"QRADAR-{alert_id}"
 
         # Generate unique ID
         import uuid
+
         return f"QRADAR-{uuid.uuid4()}"
 
     def _extract_timestamp(self, raw_alert: Dict[str, Any]) -> datetime:
@@ -223,11 +226,11 @@ class QRadarProcessor:
                 if isinstance(timestamp_str, str):
                     formats = [
                         "%Y-%m-%dT%H:%M:%S.%fZ",  # ISO with microseconds
-                        "%Y-%m-%dT%H:%M:%SZ",     # ISO format
-                        "%Y-%m-%dT%H:%M:%S",      # ISO without timezone
-                        "%Y-%m-%d %H:%M:%S",      # Space separated
-                        "%d/%m/%Y %H:%M:%S",      # DD/MM/YYYY
-                        "%m/%d/%Y %H:%M:%S",      # MM/DD/YYYY
+                        "%Y-%m-%dT%H:%M:%SZ",  # ISO format
+                        "%Y-%m-%dT%H:%M:%S",  # ISO without timezone
+                        "%Y-%m-%d %H:%M:%S",  # Space separated
+                        "%d/%m/%Y %H:%M:%S",  # DD/MM/YYYY
+                        "%m/%d/%Y %H:%M:%S",  # MM/DD/YYYY
                     ]
 
                     for fmt in formats:
@@ -413,8 +416,7 @@ class QRadarProcessor:
             # Filter domains
             tlds = [".com", ".org", ".net", ".edu", ".gov", ".mil", ".io", ".co", ".uk"]
             valid_domains = [
-                domain for domain in domain_matches
-                if any(tld in domain.lower() for tld in tlds)
+                domain for domain in domain_matches if any(tld in domain.lower() for tld in tlds)
             ]
             iocs["domains"].extend(valid_domains)
 

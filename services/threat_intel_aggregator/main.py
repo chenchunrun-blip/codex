@@ -35,14 +35,14 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.data_loader import get_data_loader
+from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
-from shared.utils.cache import CacheManager, CacheKeys
+from shared.utils.cache import CacheKeys, CacheManager
 from shared.utils.prometheus import setup_prometheus
+from sqlalchemy import text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -364,6 +364,7 @@ class InternalIOCSource(ThreatIntelSource):
 
             # Try domain extraction
             from urllib.parse import urlparse
+
             try:
                 parsed = urlparse(url)
                 domain = parsed.netloc
@@ -511,7 +512,9 @@ class AlienVaultOTXSource(ThreatIntelSource):
             return None
 
         try:
-            hash_type = "SHA256" if len(file_hash) == 64 else "MD5" if len(file_hash) == 32 else "SHA1"
+            hash_type = (
+                "SHA256" if len(file_hash) == 64 else "MD5" if len(file_hash) == 32 else "SHA1"
+            )
             url = f"{self.base_url}/indicators/file/{file_hash}/general"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=self._get_headers(), timeout=10) as response:
@@ -532,12 +535,15 @@ class AlienVaultOTXSource(ThreatIntelSource):
 
         try:
             from urllib.parse import urlparse
+
             parsed = urlparse(url)
             domain = parsed.netloc or url
 
             api_url = f"{self.base_url}/indicators/domain/{domain}/general"
             async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, headers=self._get_headers(), timeout=10) as response:
+                async with session.get(
+                    api_url, headers=self._get_headers(), timeout=10
+                ) as response:
                     if response.status == 200:
                         data = await response.json()
                         return self._parse_domain_response(data)
@@ -653,7 +659,9 @@ def init_threat_sources():
     threat_sources.append(CustomThreatFeed())
 
     enabled = [s.name for s in threat_sources if s.enabled]
-    logger.info(f"Initialized {len(threat_sources)} threat intel sources ({len(enabled)} enabled: {enabled})")
+    logger.info(
+        f"Initialized {len(threat_sources)} threat intel sources ({len(enabled)} enabled: {enabled})"
+    )
 
 
 # =============================================================================
@@ -747,7 +755,9 @@ async def enrich_with_threat_intel(alert: SecurityAlert) -> Dict[str, Any]:
 
     # Query IPs
     if alert.source_ip:
-        cache_key = CacheKeys.build(CacheKeys.THREAT_INTEL, ioc_type="ip", ioc_value=alert.source_ip)
+        cache_key = CacheKeys.build(
+            CacheKeys.THREAT_INTEL, ioc_type="ip", ioc_value=alert.source_ip
+        )
         cached = await check_cache(cache_key)
         if cached:
             enrichment["threat_intel"]["source_ip"] = cached
@@ -757,7 +767,9 @@ async def enrich_with_threat_intel(alert: SecurityAlert) -> Dict[str, Any]:
             enrichment["threat_intel"]["source_ip"] = result
 
     if alert.target_ip:
-        cache_key = CacheKeys.build(CacheKeys.THREAT_INTEL, ioc_type="ip", ioc_value=alert.target_ip)
+        cache_key = CacheKeys.build(
+            CacheKeys.THREAT_INTEL, ioc_type="ip", ioc_value=alert.target_ip
+        )
         cached = await check_cache(cache_key)
         if cached:
             enrichment["threat_intel"]["target_ip"] = cached
@@ -768,7 +780,9 @@ async def enrich_with_threat_intel(alert: SecurityAlert) -> Dict[str, Any]:
 
     # Query file hash
     if alert.file_hash:
-        cache_key = CacheKeys.build(CacheKeys.THREAT_INTEL, ioc_type="hash", ioc_value=alert.file_hash)
+        cache_key = CacheKeys.build(
+            CacheKeys.THREAT_INTEL, ioc_type="hash", ioc_value=alert.file_hash
+        )
         cached = await check_cache(cache_key)
         if cached:
             enrichment["threat_intel"]["file_hash"] = cached
@@ -915,6 +929,7 @@ async def persist_threat_intel_to_db(alert: SecurityAlert, enrichment: Dict[str,
         enrichment: Threat intelligence enrichment
     """
     import json
+
     try:
         threat_data = enrichment.get("threat_intel", {})
 
@@ -951,7 +966,7 @@ async def persist_threat_intel_to_db(alert: SecurityAlert, enrichment: Dict[str,
                             "positives": ip_data.get("positives"),
                             "total": ip_data.get("total"),
                             "raw_data": json.dumps(ip_data),
-                        }
+                        },
                     )
 
             # Save file hash threat intel
@@ -981,7 +996,7 @@ async def persist_threat_intel_to_db(alert: SecurityAlert, enrichment: Dict[str,
                             "positives": hash_data.get("positives"),
                             "total": hash_data.get("total"),
                             "raw_data": json.dumps(hash_data),
-                        }
+                        },
                     )
 
             # Save URL threat intel
@@ -1011,7 +1026,7 @@ async def persist_threat_intel_to_db(alert: SecurityAlert, enrichment: Dict[str,
                             "positives": url_data.get("positives"),
                             "total": url_data.get("total"),
                             "raw_data": json.dumps(url_data),
-                        }
+                        },
                     )
 
             await session.commit()
@@ -1075,7 +1090,9 @@ async def consume_alerts():
             # Publish enriched alert (with threat intel)
             await publisher.publish("alert.enriched", enriched_message)
 
-            logger.info(f"Alert enriched with threat intel (message_id: {message_id}, alert_id: {alert.alert_id})")
+            logger.info(
+                f"Alert enriched with threat intel (message_id: {message_id}, alert_id: {alert.alert_id})"
+            )
 
         except Exception as e:
             logger.error(f"Threat intel enrichment failed: {e}", exc_info=True)

@@ -18,10 +18,10 @@ Abuse.ch threat intelligence source.
 Queries Abuse.ch SSLBL and URLhaus for threat intelligence.
 """
 
-import aiohttp
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+import aiohttp
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)

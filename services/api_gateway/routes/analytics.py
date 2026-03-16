@@ -23,13 +23,11 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from loguru import logger
-
 from shared.database.base import get_database_manager
 from shared.database.repositories.alert_repository import AlertRepository
 from shared.database.repositories.triage_repository import TriageRepository
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.requests import DashboardStatsRequest
 from models.responses import (
@@ -38,12 +36,14 @@ from models.responses import (
     TrendDataPoint,
     TrendResponse,
 )
+
 router = APIRouter()
 
 
 # =============================================================================
 # Dependencies
 # =============================================================================
+
 
 async def get_db_session() -> AsyncSession:
     """Get database session."""
@@ -55,6 +55,7 @@ async def get_db_session() -> AsyncSession:
 # =============================================================================
 # Dashboard Statistics
 # =============================================================================
+
 
 @router.get(
     "/dashboard",
@@ -106,10 +107,7 @@ async def get_dashboard_stats(
     critical_alerts = severity_counts.get("critical", 0)
 
     # High risk alerts (risk score >= 70)
-    high_risk_alerts = len([
-        a for a in alerts
-        if a.risk_score and a.risk_score >= 70
-    ])
+    high_risk_alerts = len([a for a in alerts if a.risk_score and a.risk_score >= 70])
 
     # Pending triage (not reviewed or requires review)
     pending_review = await triage_repo.get_pending_review_count()
@@ -119,18 +117,12 @@ async def get_dashboard_stats(
     resolved_alerts = [a for a in alerts if a.status == "resolved"]
     avg_response_time = None
     if resolved_alerts:
-        response_times = [
-            (a.updated_at - a.created_at).total_seconds()
-            for a in resolved_alerts
-        ]
+        response_times = [(a.updated_at - a.created_at).total_seconds() for a in resolved_alerts]
         avg_response_time = sum(response_times) / len(response_times) if response_times else None
 
     # Alerts today (last 24 hours)
     today_start = now - timedelta(days=1)
-    alerts_today = len([
-        a for a in alerts
-        if a.created_at >= today_start
-    ])
+    alerts_today = len([a for a in alerts if a.created_at >= today_start])
 
     # Threats blocked (simulated - resolved/closed alerts)
     threats_blocked = status_counts.get("resolved", 0) + status_counts.get("closed", 0)
@@ -163,6 +155,7 @@ async def get_dashboard_stats(
 # =============================================================================
 # Alert Trends
 # =============================================================================
+
 
 @router.get(
     "/trends/alerts",
@@ -229,6 +222,7 @@ async def get_alert_trends(
 # =============================================================================
 # Risk Score Trends
 # =============================================================================
+
 
 @router.get(
     "/trends/risk-scores",
@@ -299,6 +293,7 @@ async def get_risk_score_trends(
 # Severity Distribution
 # =============================================================================
 
+
 @router.get(
     "/metrics/severity-distribution",
     response_model=Dict[str, int],
@@ -329,6 +324,7 @@ async def get_severity_distribution(
 # =============================================================================
 # Status Distribution
 # =============================================================================
+
 
 @router.get(
     "/metrics/status-distribution",
@@ -361,6 +357,7 @@ async def get_status_distribution(
 # Top Sources
 # =============================================================================
 
+
 @router.get(
     "/metrics/top-sources",
     response_model=List[Dict[str, int]],
@@ -389,6 +386,7 @@ async def get_top_sources(
 # Top Alert Types
 # =============================================================================
 
+
 @router.get(
     "/metrics/top-alert-types",
     response_model=List[Dict[str, int]],
@@ -415,15 +413,13 @@ async def get_top_alert_types(
         reverse=True,
     )[:limit]
 
-    return [
-        {"alert_type": alert_type, "count": count}
-        for alert_type, count in sorted_types
-    ]
+    return [{"alert_type": alert_type, "count": count} for alert_type, count in sorted_types]
 
 
 # =============================================================================
 # Performance Metrics
 # =============================================================================
+
 
 @router.get(
     "/metrics/performance",
@@ -470,6 +466,7 @@ async def get_performance_metrics(
 # Helper Functions
 # =============================================================================
 
+
 async def _calculate_trends(
     alert_repo: AlertRepository,
     time_range: str,
@@ -505,15 +502,14 @@ async def _calculate_trends(
         hour_start = start_time + timedelta(hours=i)
         hour_end = hour_start + timedelta(hours=1)
 
-        count = len([
-            a for a in alerts
-            if hour_start <= a.created_at < hour_end
-        ])
+        count = len([a for a in alerts if hour_start <= a.created_at < hour_end])
 
-        alert_trend.append({
-            "timestamp": hour_start.isoformat(),
-            "value": count,
-        })
+        alert_trend.append(
+            {
+                "timestamp": hour_start.isoformat(),
+                "value": count,
+            }
+        )
 
     return {
         "alert_volume": alert_trend,

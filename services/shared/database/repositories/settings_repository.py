@@ -18,10 +18,9 @@ Settings repository for system configuration and user preferences.
 
 from typing import Any, Dict, List, Optional
 
+from shared.database.models import SystemConfig, UserPreference
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from shared.database.models import SystemConfig, UserPreference
 
 
 class SettingsRepository:
@@ -46,10 +45,7 @@ class SettingsRepository:
         result = await self.session.execute(select(SystemConfig))
         configs = result.scalars().all()
         return {
-            config.config_key: {
-                "value": config.config_value,
-                "category": config.category
-            }
+            config.config_key: {"value": config.config_value, "category": config.category}
             for config in configs
         }
 
@@ -164,9 +160,7 @@ class SettingsRepository:
         )
         return result.scalar_one_or_none()
 
-    async def update_user_preferences(
-        self, user_id: str, preferences: Dict[str, Any]
-    ) -> None:
+    async def update_user_preferences(self, user_id: str, preferences: Dict[str, Any]) -> None:
         """
         Update multiple user preferences (deep merge).
 

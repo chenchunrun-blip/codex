@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 try:
     from elasticsearch import AsyncElasticsearch, NotFoundError
+
     _ES_AVAILABLE = True
 except ImportError:
     _ES_AVAILABLE = False
@@ -166,9 +167,8 @@ class ElasticsearchManager:
             elasticsearch_url: Elasticsearch URL. Falls back to
                 ``ELASTICSEARCH_URL`` env var, then ``http://elasticsearch:9200``.
         """
-        self.url = (
-            elasticsearch_url
-            or os.environ.get("ELASTICSEARCH_URL", "http://elasticsearch:9200")
+        self.url = elasticsearch_url or os.environ.get(
+            "ELASTICSEARCH_URL", "http://elasticsearch:9200"
         )
         self.client: Optional[Any] = None
         self._available = _ES_AVAILABLE
@@ -182,9 +182,7 @@ class ElasticsearchManager:
         mode (all queries return empty results).
         """
         if not self._available:
-            logger.warning(
-                "Elasticsearch client library not available; running in degraded mode"
-            )
+            logger.warning("Elasticsearch client library not available; running in degraded mode")
             return
 
         try:
@@ -288,14 +286,16 @@ class ElasticsearchManager:
 
             # Full-text query across title and description
             if query and query.strip():
-                must_clauses.append({
-                    "multi_match": {
-                        "query": query,
-                        "fields": ["title^2", "description"],
-                        "type": "best_fields",
-                        "fuzziness": "AUTO",
+                must_clauses.append(
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["title^2", "description"],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                        }
                     }
-                })
+                )
             else:
                 must_clauses.append({"match_all": {}})
 
@@ -332,11 +332,13 @@ class ElasticsearchManager:
 
             hits = []
             for hit in response["hits"]["hits"]:
-                hits.append({
-                    "id": hit["_id"],
-                    "score": hit["_score"],
-                    "source": hit["_source"],
-                })
+                hits.append(
+                    {
+                        "id": hit["_id"],
+                        "score": hit["_score"],
+                        "source": hit["_source"],
+                    }
+                )
 
             total_value = response["hits"]["total"]
             total = total_value["value"] if isinstance(total_value, dict) else total_value

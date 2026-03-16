@@ -23,7 +23,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from shared.utils.cache import CacheKeys, CacheManager, L1MemoryCache, MultiLevelCache
 
 
@@ -158,6 +157,7 @@ class TestMultiLevelCache:
     async def test_l2_hit_promotes_to_l1(self, cache):
         """Test that L2 hit promotes value to L1."""
         import json
+
         cache._redis.get = AsyncMock(return_value=json.dumps("value_from_redis").encode())
 
         result = await cache.get("key1")

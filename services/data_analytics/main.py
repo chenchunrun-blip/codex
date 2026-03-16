@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     import os
+
     await init_database(
         database_url=config.database_url,
         pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
@@ -321,6 +322,7 @@ async def _query_top_alerts(limit: int = 10) -> List[Dict[str, Any]]:
         return []
     try:
         from sqlalchemy import text
+
         async with db_manager.get_session() as session:
             result = await session.execute(
                 text("""
@@ -356,14 +358,13 @@ async def _query_top_alerts(limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
 
-async def _query_alert_metrics(
-    start_date: datetime, end_date: datetime
-) -> Optional[AlertMetric]:
+async def _query_alert_metrics(start_date: datetime, end_date: datetime) -> Optional[AlertMetric]:
     """Query alert metrics from database for the given time range."""
     if not db_manager:
         return None
     try:
         from sqlalchemy import text
+
         async with db_manager.get_session() as session:
             # Total alerts in range
             total_result = await session.execute(
@@ -752,9 +753,7 @@ async def get_analytics_summary():
                     else 0.0
                 ),
                 "accuracy_score": (
-                    metrics_cache["triage"]["accurate"] / triage_count
-                    if triage_count > 0
-                    else 0.0
+                    metrics_cache["triage"]["accurate"] / triage_count if triage_count > 0 else 0.0
                 ),
             },
             "automation": {
@@ -774,9 +773,7 @@ async def get_analytics_summary():
             try:
                 async with db_manager.get_session() as session:
                     # Total alerts from database
-                    db_total = await session.execute(
-                        text("SELECT COUNT(*) FROM alerts")
-                    )
+                    db_total = await session.execute(text("SELECT COUNT(*) FROM alerts"))
                     summary["alerts"]["total_in_db"] = db_total.scalar() or 0
 
                     # Trend data points count

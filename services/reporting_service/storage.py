@@ -163,7 +163,7 @@ class ReportStorage:
         """
         if file_path.startswith("minio://") and self._use_minio and self._minio_client:
             # Parse minio://bucket/object_name
-            parts = file_path[len("minio://"):].split("/", 1)
+            parts = file_path[len("minio://") :].split("/", 1)
             if len(parts) != 2:
                 logger.error(f"Invalid MinIO path: {file_path}")
                 return None
@@ -183,7 +183,7 @@ class ReportStorage:
             local_path = file_path
             if file_path.startswith("minio://"):
                 # MinIO unavailable, try local fallback
-                parts = file_path[len("minio://"):].split("/", 1)
+                parts = file_path[len("minio://") :].split("/", 1)
                 object_name = parts[1] if len(parts) == 2 else parts[0]
                 local_path = os.path.join(self._local_path, object_name)
 
@@ -205,7 +205,7 @@ class ReportStorage:
             True if deleted, False otherwise
         """
         if file_path.startswith("minio://") and self._use_minio and self._minio_client:
-            parts = file_path[len("minio://"):].split("/", 1)
+            parts = file_path[len("minio://") :].split("/", 1)
             if len(parts) != 2:
                 return False
             bucket, object_name = parts
@@ -219,7 +219,7 @@ class ReportStorage:
         else:
             local_path = file_path
             if file_path.startswith("minio://"):
-                parts = file_path[len("minio://"):].split("/", 1)
+                parts = file_path[len("minio://") :].split("/", 1)
                 object_name = parts[1] if len(parts) == 2 else parts[0]
                 local_path = os.path.join(self._local_path, object_name)
 
@@ -247,7 +247,7 @@ class ReportStorage:
         if not (file_path.startswith("minio://") and self._use_minio and self._minio_client):
             return None
 
-        parts = file_path[len("minio://"):].split("/", 1)
+        parts = file_path[len("minio://") :].split("/", 1)
         if len(parts) != 2:
             return None
 

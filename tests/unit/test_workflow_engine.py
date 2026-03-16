@@ -2,10 +2,10 @@
 audit logging, SLA management, smart assignment, approval workflow, and CRUD APIs."""
 
 import asyncio
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import (
     HumanTask,
     TaskPriority,
@@ -15,10 +15,10 @@ from shared.models import (
     WorkflowStatus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Decision Expression Evaluation
 # ---------------------------------------------------------------------------
+
 
 class TestDecisionEvaluation:
     """Test the condition expression evaluator."""
@@ -94,6 +94,7 @@ class TestDecisionEvaluation:
 # Notification Helpers
 # ---------------------------------------------------------------------------
 
+
 class TestNotificationHelpers:
     """Test notification template rendering and dispatch."""
 
@@ -107,8 +108,8 @@ class TestNotificationHelpers:
 
     @pytest.mark.asyncio
     async def test_send_notification_with_publisher(self):
-        from services.workflow_engine.main import send_notification
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import send_notification
 
         mock_pub = AsyncMock()
         original_pub = wf_module.publisher
@@ -133,8 +134,8 @@ class TestNotificationHelpers:
 
     @pytest.mark.asyncio
     async def test_send_notification_without_publisher(self):
-        from services.workflow_engine.main import send_notification
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import send_notification
 
         original_pub = wf_module.publisher
         wf_module.publisher = None
@@ -152,6 +153,7 @@ class TestNotificationHelpers:
 # Automation Trigger
 # ---------------------------------------------------------------------------
 
+
 class TestAutomationTrigger:
     """Test automation playbook triggering."""
 
@@ -163,8 +165,8 @@ class TestAutomationTrigger:
 
     @pytest.mark.asyncio
     async def test_trigger_automation_for_malware(self):
-        from services.workflow_engine.main import trigger_automation, pending_approvals
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import pending_approvals, trigger_automation
 
         mock_pub = AsyncMock()
         original_pub = wf_module.publisher
@@ -199,8 +201,8 @@ class TestAutomationTrigger:
 
     @pytest.mark.asyncio
     async def test_trigger_automation_no_playbook_mapped(self):
-        from services.workflow_engine.main import trigger_automation
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import trigger_automation
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -226,6 +228,7 @@ class TestAutomationTrigger:
 # ---------------------------------------------------------------------------
 # Step Execution
 # ---------------------------------------------------------------------------
+
 
 class TestStepExecution:
     """Test individual workflow step types."""
@@ -258,8 +261,8 @@ class TestStepExecution:
     @pytest.mark.asyncio
     async def test_activity_step_generic_service(self):
         """Generic service activity should publish a message."""
-        from services.workflow_engine.main import execute_workflow_step
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import execute_workflow_step
 
         mock_pub = AsyncMock()
         original_pub = wf_module.publisher
@@ -333,8 +336,8 @@ class TestStepExecution:
     @pytest.mark.asyncio
     async def test_human_task_step(self):
         """Human task step should create a pending task."""
-        from services.workflow_engine.main import execute_workflow_step, pending_tasks
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import execute_workflow_step, pending_tasks
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -371,8 +374,8 @@ class TestStepExecution:
     @pytest.mark.asyncio
     async def test_notification_step(self):
         """Notification step should dispatch notifications."""
-        from services.workflow_engine.main import execute_workflow_step
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import execute_workflow_step
 
         mock_pub = AsyncMock()
         original_pub = wf_module.publisher
@@ -420,6 +423,7 @@ class TestStepExecution:
 # ---------------------------------------------------------------------------
 # Step Retry Logic
 # ---------------------------------------------------------------------------
+
 
 class TestStepRetry:
     """Test step-level retry with backoff."""
@@ -489,12 +493,16 @@ class TestStepRetry:
 # Human Task Completion & Resume
 # ---------------------------------------------------------------------------
 
+
 class TestHumanTaskCompletion:
     """Test human task lifecycle and workflow resume."""
 
     def test_complete_task(self):
         from services.workflow_engine.main import (
-            complete_human_task, pending_tasks, active_executions, _resume_events,
+            _resume_events,
+            active_executions,
+            complete_human_task,
+            pending_tasks,
         )
 
         # Create a pending task
@@ -542,15 +550,17 @@ class TestHumanTaskCompletion:
         _resume_events.pop("exec-resume-001", None)
 
     def test_complete_nonexistent_task_raises(self):
-        from services.workflow_engine.main import complete_human_task
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import complete_human_task
 
         with pytest.raises(WorkflowError, match="Task not found"):
             complete_human_task("task-nonexistent")
 
     def test_complete_already_completed_task_raises(self):
-        from services.workflow_engine.main import complete_human_task, pending_tasks
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import complete_human_task, pending_tasks
 
         task = HumanTask(
             task_id="task-already-done",
@@ -574,17 +584,20 @@ class TestHumanTaskCompletion:
 # Workflow Execution
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowExecution:
     """Test full workflow execution orchestration."""
 
     @pytest.mark.asyncio
     async def test_simple_workflow_completes(self):
         """A workflow with only activity steps should complete."""
-        from services.workflow_engine.main import (
-            execute_workflow, workflow_definitions, active_executions,
-            execution_step_results,
-        )
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import (
+            active_executions,
+            execute_workflow,
+            execution_step_results,
+            workflow_definitions,
+        )
 
         # Register a simple test workflow
         test_wf = WorkflowDefinition(
@@ -631,10 +644,12 @@ class TestWorkflowExecution:
     @pytest.mark.asyncio
     async def test_workflow_fails_on_step_error(self):
         """Workflow should fail when a step fails."""
-        from services.workflow_engine.main import (
-            execute_workflow, workflow_definitions, active_executions,
-        )
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import (
+            active_executions,
+            execute_workflow,
+            workflow_definitions,
+        )
 
         test_wf = WorkflowDefinition(
             workflow_id="test-fail",
@@ -674,10 +689,12 @@ class TestWorkflowExecution:
     @pytest.mark.asyncio
     async def test_workflow_decision_branching(self):
         """Workflow should branch based on decision result."""
-        from services.workflow_engine.main import (
-            execute_workflow, workflow_definitions, active_executions,
-        )
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import (
+            active_executions,
+            execute_workflow,
+            workflow_definitions,
+        )
 
         test_wf = WorkflowDefinition(
             workflow_id="test-branch",
@@ -728,8 +745,9 @@ class TestWorkflowExecution:
     @pytest.mark.asyncio
     async def test_workflow_not_found_raises(self):
         """Starting a workflow with unknown ID should raise WorkflowError."""
-        from services.workflow_engine.main import start_workflow_execution
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import start_workflow_execution
 
         with pytest.raises(WorkflowError, match="not found"):
             start_workflow_execution("nonexistent-workflow", {})
@@ -739,13 +757,15 @@ class TestWorkflowExecution:
 # Workflow Cancellation
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowCancellation:
     """Test workflow cancellation."""
 
     @pytest.mark.asyncio
     async def test_cancel_running_execution(self):
         from services.workflow_engine.main import (
-            cancel_workflow_execution, active_executions,
+            active_executions,
+            cancel_workflow_execution,
         )
 
         execution = WorkflowExecution(
@@ -765,10 +785,12 @@ class TestWorkflowCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_completed_execution_raises(self):
-        from services.workflow_engine.main import (
-            cancel_workflow_execution, active_executions,
-        )
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import (
+            active_executions,
+            cancel_workflow_execution,
+        )
 
         execution = WorkflowExecution(
             execution_id="exec-cancel-002",
@@ -786,8 +808,9 @@ class TestWorkflowCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_nonexistent_raises(self):
-        from services.workflow_engine.main import cancel_workflow_execution
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import cancel_workflow_execution
 
         with pytest.raises(WorkflowError, match="not found"):
             await cancel_workflow_execution("exec-nonexistent")
@@ -796,6 +819,7 @@ class TestWorkflowCancellation:
 # ---------------------------------------------------------------------------
 # Correlation Integration
 # ---------------------------------------------------------------------------
+
 
 class TestCorrelationIntegration:
     """Test correlation helpers in workflow context."""
@@ -824,7 +848,10 @@ class TestCorrelationIntegration:
     @pytest.mark.asyncio
     async def test_cache_bounded_at_max(self):
         from services.workflow_engine.main import (
-            _run_correlation, recent_alerts_cache, MAX_RECENT_ALERTS, _cache_lock,
+            MAX_RECENT_ALERTS,
+            _cache_lock,
+            _run_correlation,
+            recent_alerts_cache,
         )
 
         # Fill cache to max
@@ -849,13 +876,16 @@ class TestCorrelationIntegration:
 
     @pytest.mark.asyncio
     async def test_trigger_incident_response(self):
+        # Ensure incident-response workflow is registered
         from services.workflow_engine.main import (
-            _trigger_incident_response, workflow_definitions, active_executions,
-            pending_tasks, _resume_events,
+            DEFAULT_WORKFLOWS,
+            _resume_events,
+            _trigger_incident_response,
+            active_executions,
+            pending_tasks,
+            workflow_definitions,
         )
 
-        # Ensure incident-response workflow is registered
-        from services.workflow_engine.main import DEFAULT_WORKFLOWS
         workflow_definitions.update(DEFAULT_WORKFLOWS)
 
         execution = WorkflowExecution(
@@ -876,7 +906,8 @@ class TestCorrelationIntegration:
 
         # Should have created a new execution (may be PENDING due to human_task)
         ir_execs = [
-            e for e in active_executions.values()
+            e
+            for e in active_executions.values()
             if e.workflow_id == "incident-response"
             and e.input.get("triggered_by") == "exec-ir-source"
         ]
@@ -892,7 +923,8 @@ class TestCorrelationIntegration:
 
         # Remove any tasks created by the IR workflow
         task_ids_to_remove = [
-            tid for tid, t in pending_tasks.items()
+            tid
+            for tid, t in pending_tasks.items()
             if any(t.execution_id == e.execution_id for e in ir_execs)
         ]
         for tid in task_ids_to_remove:
@@ -904,6 +936,7 @@ class TestCorrelationIntegration:
 # ---------------------------------------------------------------------------
 # Default Workflow Definitions
 # ---------------------------------------------------------------------------
+
 
 class TestDefaultWorkflows:
     """Test default workflow definition structure."""
@@ -948,6 +981,7 @@ class TestDefaultWorkflows:
 # Step Result Aggregation
 # ---------------------------------------------------------------------------
 
+
 class TestStepResultAggregation:
     """Test step result tracking."""
 
@@ -959,7 +993,8 @@ class TestStepResultAggregation:
 
     def test_get_execution_step_results_populated(self):
         from services.workflow_engine.main import (
-            get_execution_step_results, execution_step_results,
+            execution_step_results,
+            get_execution_step_results,
         )
 
         execution_step_results["exec-results-001"] = {
@@ -978,6 +1013,7 @@ class TestStepResultAggregation:
 # ---------------------------------------------------------------------------
 # Error Classes
 # ---------------------------------------------------------------------------
+
 
 class TestErrorClasses:
     """Test custom error classes."""
@@ -1015,9 +1051,11 @@ class TestErrorClasses:
 # Helper to reset analyst pool state between tests
 # ---------------------------------------------------------------------------
 
+
 def _reset_analyst_pool():
     """Reset analyst pool to default state for test isolation."""
     from services.workflow_engine.main import ANALYST_POOL
+
     for analyst in ANALYST_POOL:
         analyst["active_tasks"] = 0
         analyst["available"] = True
@@ -1026,6 +1064,7 @@ def _reset_analyst_pool():
 # ---------------------------------------------------------------------------
 # SLA Management
 # ---------------------------------------------------------------------------
+
 
 class TestSLAManagement:
     """Test SLA deadline calculation and breach detection."""
@@ -1060,8 +1099,8 @@ class TestSLAManagement:
 
     @pytest.mark.asyncio
     async def test_check_sla_breaches_detects_overdue(self):
-        from services.workflow_engine.main import check_sla_breaches, pending_tasks
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import check_sla_breaches, pending_tasks
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1095,8 +1134,8 @@ class TestSLAManagement:
 
     @pytest.mark.asyncio
     async def test_check_sla_breaches_no_breach_for_recent_task(self):
-        from services.workflow_engine.main import check_sla_breaches, pending_tasks
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import check_sla_breaches, pending_tasks
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1135,11 +1174,13 @@ class TestSLAManagement:
 # Smart Task Assignment
 # ---------------------------------------------------------------------------
 
+
 class TestSmartTaskAssignment:
     """Test skill-based and load-balanced task assignment."""
 
     def test_find_best_assignee_skill_match(self):
         from services.workflow_engine.main import _find_best_assignee
+
         _reset_analyst_pool()
 
         # analyst-1 and analyst-3 have malware skill
@@ -1147,7 +1188,8 @@ class TestSmartTaskAssignment:
         assert assignee in ("analyst-1", "analyst-3")
 
     def test_find_best_assignee_load_balance(self):
-        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        from services.workflow_engine.main import ANALYST_POOL, _find_best_assignee
+
         _reset_analyst_pool()
 
         # Give analyst-1 some load
@@ -1161,6 +1203,7 @@ class TestSmartTaskAssignment:
 
     def test_find_best_assignee_exclude(self):
         from services.workflow_engine.main import _find_best_assignee
+
         _reset_analyst_pool()
 
         # Exclude analyst-1, should pick analyst-3 for malware
@@ -1169,7 +1212,8 @@ class TestSmartTaskAssignment:
         _reset_analyst_pool()
 
     def test_find_best_assignee_no_candidates_returns_fallback(self):
-        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        from services.workflow_engine.main import ANALYST_POOL, _find_best_assignee
+
         _reset_analyst_pool()
 
         # Make all analysts unavailable
@@ -1182,7 +1226,8 @@ class TestSmartTaskAssignment:
         _reset_analyst_pool()
 
     def test_find_best_assignee_increments_active_tasks(self):
-        from services.workflow_engine.main import _find_best_assignee, ANALYST_POOL
+        from services.workflow_engine.main import ANALYST_POOL, _find_best_assignee
+
         _reset_analyst_pool()
 
         assignee = _find_best_assignee("medium", "brute_force")
@@ -1195,7 +1240,8 @@ class TestSmartTaskAssignment:
         _reset_analyst_pool()
 
     def test_release_analyst(self):
-        from services.workflow_engine.main import _release_analyst, ANALYST_POOL
+        from services.workflow_engine.main import ANALYST_POOL, _release_analyst
+
         _reset_analyst_pool()
 
         ANALYST_POOL[0]["active_tasks"] = 2
@@ -1205,7 +1251,8 @@ class TestSmartTaskAssignment:
         _reset_analyst_pool()
 
     def test_release_analyst_does_not_go_negative(self):
-        from services.workflow_engine.main import _release_analyst, ANALYST_POOL
+        from services.workflow_engine.main import ANALYST_POOL, _release_analyst
+
         _reset_analyst_pool()
 
         _release_analyst("analyst-1")  # already at 0
@@ -1214,8 +1261,8 @@ class TestSmartTaskAssignment:
     @pytest.mark.asyncio
     async def test_human_task_uses_smart_assignment(self):
         """Human task step with 'security-team' assignee should use smart assignment."""
-        from services.workflow_engine.main import execute_workflow_step, pending_tasks
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import execute_workflow_step, pending_tasks
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1260,6 +1307,7 @@ class TestSmartTaskAssignment:
 # Approval Workflow
 # ---------------------------------------------------------------------------
 
+
 class TestApprovalWorkflow:
     """Test approval workflow for high-risk automation."""
 
@@ -1282,10 +1330,11 @@ class TestApprovalWorkflow:
 
     @pytest.mark.asyncio
     async def test_request_approval_creates_entry(self):
-        from services.workflow_engine.main import (
-            request_approval, pending_approvals,
-        )
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import (
+            pending_approvals,
+            request_approval,
+        )
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1315,7 +1364,8 @@ class TestApprovalWorkflow:
 
     def test_process_approval_approve(self):
         from services.workflow_engine.main import (
-            process_approval, pending_approvals,
+            pending_approvals,
+            process_approval,
         )
 
         pending_approvals["test-apr-001"] = {
@@ -1335,7 +1385,8 @@ class TestApprovalWorkflow:
 
     def test_process_approval_reject(self):
         from services.workflow_engine.main import (
-            process_approval, pending_approvals,
+            pending_approvals,
+            process_approval,
         )
 
         pending_approvals["test-apr-002"] = {
@@ -1352,17 +1403,20 @@ class TestApprovalWorkflow:
             pending_approvals.pop("test-apr-002", None)
 
     def test_process_approval_not_found_raises(self):
-        from services.workflow_engine.main import process_approval
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import process_approval
 
         with pytest.raises(WorkflowError, match="not found"):
             process_approval("nonexistent", True, "admin")
 
     def test_process_approval_already_processed_raises(self):
-        from services.workflow_engine.main import (
-            process_approval, pending_approvals,
-        )
         from shared.errors import WorkflowError
+
+        from services.workflow_engine.main import (
+            pending_approvals,
+            process_approval,
+        )
 
         pending_approvals["test-apr-003"] = {
             "approval_id": "test-apr-003",
@@ -1380,10 +1434,11 @@ class TestApprovalWorkflow:
     @pytest.mark.asyncio
     async def test_trigger_automation_requires_approval_for_critical(self):
         """High-risk automation with CRITICAL risk should return awaiting_approval."""
-        from services.workflow_engine.main import (
-            trigger_automation, pending_approvals,
-        )
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import (
+            pending_approvals,
+            trigger_automation,
+        )
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1414,8 +1469,8 @@ class TestApprovalWorkflow:
     @pytest.mark.asyncio
     async def test_trigger_automation_no_approval_for_low_risk(self):
         """Low-risk automation should trigger directly without approval."""
-        from services.workflow_engine.main import trigger_automation
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import trigger_automation
 
         original_pub = wf_module.publisher
         wf_module.publisher = AsyncMock()
@@ -1444,13 +1499,14 @@ class TestApprovalWorkflow:
 # Audit Logging
 # ---------------------------------------------------------------------------
 
+
 class TestAuditLogging:
     """Test audit logging functionality."""
 
     @pytest.mark.asyncio
     async def test_audit_log_without_db_does_not_raise(self):
-        from services.workflow_engine.main import audit_log
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import audit_log
 
         original_db = wf_module.db_manager
         wf_module.db_manager = None
@@ -1468,8 +1524,8 @@ class TestAuditLogging:
 
     @pytest.mark.asyncio
     async def test_audit_log_with_db_writes_entry(self):
-        from services.workflow_engine.main import audit_log
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import audit_log
 
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -1498,13 +1554,14 @@ class TestAuditLogging:
 # Database Persistence
 # ---------------------------------------------------------------------------
 
+
 class TestDatabasePersistence:
     """Test database persistence helpers."""
 
     @pytest.mark.asyncio
     async def test_persist_workflow_definition_no_db(self):
-        from services.workflow_engine.main import persist_workflow_definition
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import persist_workflow_definition
 
         original_db = wf_module.db_manager
         wf_module.db_manager = None
@@ -1524,8 +1581,8 @@ class TestDatabasePersistence:
 
     @pytest.mark.asyncio
     async def test_persist_execution_no_db(self):
-        from services.workflow_engine.main import persist_execution
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import persist_execution
 
         original_db = wf_module.db_manager
         wf_module.db_manager = None
@@ -1543,8 +1600,8 @@ class TestDatabasePersistence:
 
     @pytest.mark.asyncio
     async def test_load_workflow_definitions_no_db(self):
-        from services.workflow_engine.main import load_workflow_definitions_from_db
         import services.workflow_engine.main as wf_module
+        from services.workflow_engine.main import load_workflow_definitions_from_db
 
         original_db = wf_module.db_manager
         wf_module.db_manager = None
@@ -1558,6 +1615,7 @@ class TestDatabasePersistence:
 # ---------------------------------------------------------------------------
 # Notification Templates
 # ---------------------------------------------------------------------------
+
 
 class TestNotificationTemplates:
     """Test new notification templates."""
@@ -1587,6 +1645,7 @@ class TestNotificationTemplates:
 # ---------------------------------------------------------------------------
 # Request Models
 # ---------------------------------------------------------------------------
+
 
 class TestRequestModels:
     """Test Pydantic request models."""

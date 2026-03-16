@@ -295,7 +295,9 @@ def normalize_alert(raw_alert: dict, source_type: str = "default") -> SecurityAl
         normalized_alert.normalized_data["source_type"] = source_type
         normalized_alert.normalized_data["normalized_at"] = datetime.utcnow().isoformat()
 
-        logger.debug(f"Alert normalized successfully (alert_id: {normalized_alert.alert_id}, source_type: {source_type}, processor: {processor.__class__.__name__}, alert_type: {normalized_alert.alert_type.value})")
+        logger.debug(
+            f"Alert normalized successfully (alert_id: {normalized_alert.alert_id}, source_type: {source_type}, processor: {processor.__class__.__name__}, alert_type: {normalized_alert.alert_type.value})"
+        )
 
         return normalized_alert
 
@@ -461,10 +463,7 @@ class AlertAggregator:
         batch_age = current_time - self.batch_timestamps[batch_key]
         batch_size = len(self.batches[batch_key])
 
-        should_publish = (
-            batch_size >= self.max_batch_size or
-            batch_age >= self.window
-        )
+        should_publish = batch_size >= self.max_batch_size or batch_age >= self.window
 
         if should_publish:
             batch = self.batches.pop(batch_key, [])
@@ -527,7 +526,9 @@ async def consume_alerts():
             if "data" in message and isinstance(message["data"], dict):
                 actual_message = message["data"]
                 meta = message.get("_meta", {})
-                message_id = meta.get("message_id", actual_message.get("message_id", str(uuid.uuid4())))
+                message_id = meta.get(
+                    "message_id", actual_message.get("message_id", str(uuid.uuid4()))
+                )
                 payload = actual_message.get("payload", actual_message)
             else:
                 payload = message.get("payload", message)
@@ -608,7 +609,9 @@ async def publish_single_alert(
         persistent=True,
     )
 
-    logger.info(f"Alert normalized and published (message_id: {original_message_id}, alert_id: {alert.alert_id}, source_type: {source_type}, alert_type: {alert.alert_type.value}, severity: {alert.severity.value})")
+    logger.info(
+        f"Alert normalized and published (message_id: {original_message_id}, alert_id: {alert.alert_id}, source_type: {source_type}, alert_type: {alert.alert_type.value}, severity: {alert.severity.value})"
+    )
 
 
 async def publish_batch(
@@ -643,7 +646,13 @@ async def publish_batch(
     # Determine priority based on highest severity in batch
     highest_severity = max(
         (alert.severity for alert in alerts),
-        key=lambda s: {Severity.CRITICAL: 10, Severity.HIGH: 8, Severity.MEDIUM: 5, Severity.LOW: 3, Severity.INFO: 1}.get(s, 0)
+        key=lambda s: {
+            Severity.CRITICAL: 10,
+            Severity.HIGH: 8,
+            Severity.MEDIUM: 5,
+            Severity.LOW: 3,
+            Severity.INFO: 1,
+        }.get(s, 0),
     )
 
     priority = {
@@ -661,7 +670,9 @@ async def publish_batch(
         persistent=True,
     )
 
-    logger.info(f"Alert batch normalized and published (message_id: {original_message_id}, batch_size: {len(alerts)}, source_type: {source_type}, highest_severity: {highest_severity.value})")
+    logger.info(
+        f"Alert batch normalized and published (message_id: {original_message_id}, batch_size: {len(alerts)}, source_type: {source_type}, highest_severity: {highest_severity.value})"
+    )
 
 
 # =============================================================================

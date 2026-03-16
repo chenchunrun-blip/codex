@@ -1,15 +1,15 @@
 """Unit tests for Decision Engine service - decision rules, routing, SLA, and API."""
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Decision Rules: Priority Determination
 # ---------------------------------------------------------------------------
+
 
 class TestDecisionRules:
     """Test risk-score-to-priority mapping logic."""
@@ -80,6 +80,7 @@ class TestDecisionRules:
 # Human Review Determination
 # ---------------------------------------------------------------------------
 
+
 class TestHumanReview:
     """Test human review requirement logic."""
 
@@ -129,6 +130,7 @@ class TestHumanReview:
 # Auto-Close Logic
 # ---------------------------------------------------------------------------
 
+
 class TestAutoClose:
     """Test auto-close candidate determination."""
 
@@ -166,6 +168,7 @@ class TestAutoClose:
 # Auto-Escalation
 # ---------------------------------------------------------------------------
 
+
 class TestAutoEscalate:
     """Test auto-escalation determination."""
 
@@ -200,12 +203,13 @@ class TestAutoEscalate:
 # Approval Workflow Levels
 # ---------------------------------------------------------------------------
 
+
 class TestApprovalLevels:
     """Test approval level determination."""
 
     def test_critical_approval_at_90(self):
         """Risk >= 90 requires critical (director) approval."""
-        from services.decision_engine.main import determine_approval_level, APPROVAL_LEVELS
+        from services.decision_engine.main import APPROVAL_LEVELS, determine_approval_level
 
         level = determine_approval_level(90)
         assert level == "critical"
@@ -214,7 +218,7 @@ class TestApprovalLevels:
 
     def test_high_approval_at_70(self):
         """Risk >= 70 requires high (manager) approval."""
-        from services.decision_engine.main import determine_approval_level, APPROVAL_LEVELS
+        from services.decision_engine.main import APPROVAL_LEVELS, determine_approval_level
 
         level = determine_approval_level(70)
         assert level == "high"
@@ -223,7 +227,7 @@ class TestApprovalLevels:
 
     def test_medium_approval_at_40(self):
         """Risk >= 40 requires medium (team_lead) approval."""
-        from services.decision_engine.main import determine_approval_level, APPROVAL_LEVELS
+        from services.decision_engine.main import APPROVAL_LEVELS, determine_approval_level
 
         level = determine_approval_level(50)
         assert level == "medium"
@@ -231,7 +235,7 @@ class TestApprovalLevels:
 
     def test_low_approval_auto(self):
         """Risk < 40 is auto-approved."""
-        from services.decision_engine.main import determine_approval_level, APPROVAL_LEVELS
+        from services.decision_engine.main import APPROVAL_LEVELS, determine_approval_level
 
         level = determine_approval_level(20)
         assert level == "low"
@@ -242,6 +246,7 @@ class TestApprovalLevels:
 # ---------------------------------------------------------------------------
 # Analyst Routing (Skill-Based Matching)
 # ---------------------------------------------------------------------------
+
 
 class TestAnalystRouting:
     """Test skill-based analyst selection and workload balancing."""
@@ -269,7 +274,7 @@ class TestAnalystRouting:
 
     def test_tier_bonus_for_high_priority(self):
         """Higher-tier analysts preferred for critical/high priority alerts."""
-        from services.decision_engine.main import select_analyst, ANALYST_POOL
+        from services.decision_engine.main import ANALYST_POOL, select_analyst
 
         self._reset_analyst_pool()
 
@@ -282,7 +287,7 @@ class TestAnalystRouting:
 
     def test_no_analyst_when_all_at_capacity(self):
         """Returns None when all analysts are at maximum capacity."""
-        from services.decision_engine.main import select_analyst, ANALYST_POOL
+        from services.decision_engine.main import ANALYST_POOL, select_analyst
 
         self._reset_analyst_pool()
 
@@ -296,7 +301,7 @@ class TestAnalystRouting:
 
     def test_no_analyst_when_all_unavailable(self):
         """Returns None when all analysts are unavailable."""
-        from services.decision_engine.main import select_analyst, ANALYST_POOL
+        from services.decision_engine.main import ANALYST_POOL, select_analyst
 
         self._reset_analyst_pool()
 
@@ -310,7 +315,7 @@ class TestAnalystRouting:
 
     def test_workload_incremented(self):
         """Selected analyst's active_tasks should be incremented."""
-        from services.decision_engine.main import select_analyst, ANALYST_POOL
+        from services.decision_engine.main import ANALYST_POOL, select_analyst
 
         self._reset_analyst_pool()
 
@@ -324,6 +329,7 @@ class TestAnalystRouting:
 # ---------------------------------------------------------------------------
 # SLA Deadline Calculation and Breach Detection
 # ---------------------------------------------------------------------------
+
 
 class TestSLA:
     """Test SLA deadline calculation and breach detection."""
@@ -419,6 +425,7 @@ class TestSLA:
 # Core make_decision Integration
 # ---------------------------------------------------------------------------
 
+
 class TestMakeDecision:
     """Test the core make_decision orchestration function."""
 
@@ -481,7 +488,7 @@ class TestMakeDecision:
     @pytest.mark.asyncio
     async def test_decision_tracked(self):
         """Decision should be stored in decisions_made dict."""
-        from services.decision_engine.main import make_decision, decisions_made
+        from services.decision_engine.main import decisions_made, make_decision
 
         self._reset_state()
 
@@ -501,18 +508,18 @@ class TestMakeDecision:
 # API Endpoint Tests
 # ---------------------------------------------------------------------------
 
+
 class TestDecisionAPI:
     """Test Decision Engine FastAPI endpoints."""
 
     @pytest.mark.asyncio
     async def test_health_endpoint(self):
         """Health endpoint should return healthy status."""
-        from services.decision_engine.main import app
         from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        from services.decision_engine.main import app
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -523,8 +530,9 @@ class TestDecisionAPI:
     @pytest.mark.asyncio
     async def test_decide_endpoint_post(self):
         """POST /api/v1/decide/{alert_id} should return a decision."""
-        from services.decision_engine import main as de
         from httpx import ASGITransport, AsyncClient
+
+        from services.decision_engine import main as de
 
         # Reset state
         de.decisions_made.clear()
@@ -565,14 +573,13 @@ class TestDecisionAPI:
     @pytest.mark.asyncio
     async def test_decide_endpoint_get_not_found(self):
         """GET /api/v1/decide/{alert_id} returns 404 for unknown alert."""
-        from services.decision_engine.main import app, decisions_made
         from httpx import ASGITransport, AsyncClient
+
+        from services.decision_engine.main import app, decisions_made
 
         decisions_made.clear()
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/v1/decide/ALT-NONEXISTENT")
 
         assert response.status_code == 404
@@ -580,12 +587,11 @@ class TestDecisionAPI:
     @pytest.mark.asyncio
     async def test_rules_endpoint(self):
         """GET /api/v1/rules should list decision rules."""
-        from services.decision_engine.main import app
         from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        from services.decision_engine.main import app
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/v1/rules")
 
         assert response.status_code == 200
@@ -598,12 +604,11 @@ class TestDecisionAPI:
     @pytest.mark.asyncio
     async def test_metrics_endpoint(self):
         """GET /metrics should return decision metrics."""
-        from services.decision_engine.main import app
         from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        from services.decision_engine.main import app
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/metrics")
 
         assert response.status_code == 200

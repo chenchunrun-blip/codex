@@ -1,26 +1,27 @@
 """Unit tests for User Management service - CRUD, auth, roles, permissions, audit."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from fastapi import HTTPException
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+import pytest
+from fastapi import HTTPException
 from shared.auth import (
-    Permission,
     ROLE_PERMISSIONS,
+    Permission,
+)
+from shared.auth import User as AuthUser
+from shared.auth import (
     UserRole,
-    hash_password,
-    verify_password,
     create_access_token,
     create_refresh_token,
     decode_token,
     get_user_permissions,
-    has_permission,
-    has_any_permission,
     has_all_permissions,
+    has_any_permission,
+    has_permission,
+    hash_password,
+    verify_password,
 )
-from shared.auth import User as AuthUser
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -181,7 +182,9 @@ class TestRBACPermissions:
 
     def test_has_any_permission_false(self):
         user = _make_auth_user(role=UserRole.VIEWER)
-        assert has_any_permission(user, [Permission.SYSTEM_CONFIG, Permission.SYSTEM_USERS]) is False
+        assert (
+            has_any_permission(user, [Permission.SYSTEM_CONFIG, Permission.SYSTEM_USERS]) is False
+        )
 
     def test_has_all_permissions_true(self):
         user = _make_auth_user(role=UserRole.ADMIN)
@@ -388,10 +391,13 @@ class TestLoginEndpoint:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 with patch.object(mod, "audit_log", new_callable=AsyncMock):
                     from services.user_management.main import LoginRequest
-                    result = await mod.login(LoginRequest(
-                        username_or_email="testuser",
-                        password=password,
-                    ))
+
+                    result = await mod.login(
+                        LoginRequest(
+                            username_or_email="testuser",
+                            password=password,
+                        )
+                    )
 
             assert result["success"] is True
             assert "access_token" in result["data"]
@@ -422,11 +428,14 @@ class TestLoginEndpoint:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 with patch.object(mod, "audit_log", new_callable=AsyncMock):
                     from services.user_management.main import LoginRequest
+
                     with pytest.raises(HTTPException) as exc_info:
-                        await mod.login(LoginRequest(
-                            username_or_email="nobody",
-                            password="wrong",
-                        ))
+                        await mod.login(
+                            LoginRequest(
+                                username_or_email="nobody",
+                                password="wrong",
+                            )
+                        )
                     assert exc_info.value.status_code == 401
         finally:
             mod.db_manager = old_db
@@ -459,11 +468,14 @@ class TestLoginEndpoint:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 with patch.object(mod, "audit_log", new_callable=AsyncMock):
                     from services.user_management.main import LoginRequest
+
                     with pytest.raises(HTTPException) as exc_info:
-                        await mod.login(LoginRequest(
-                            username_or_email="testuser",
-                            password=password,
-                        ))
+                        await mod.login(
+                            LoginRequest(
+                                username_or_email="testuser",
+                                password=password,
+                            )
+                        )
                     assert exc_info.value.status_code == 403
         finally:
             mod.db_manager = old_db
@@ -501,6 +513,7 @@ class TestCreateUser:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 with patch.object(mod, "audit_log", new_callable=AsyncMock):
                     from services.user_management.main import UserCreateRequest
+
                     result = await mod.create_user(
                         UserCreateRequest(
                             username="newuser",
@@ -540,6 +553,7 @@ class TestCreateUser:
         try:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 from services.user_management.main import UserCreateRequest
+
                 with pytest.raises(HTTPException) as exc_info:
                     await mod.create_user(
                         UserCreateRequest(
@@ -566,6 +580,7 @@ class TestCreateUser:
 
         try:
             from services.user_management.main import UserCreateRequest
+
             with pytest.raises(HTTPException) as exc_info:
                 await mod.create_user(
                     UserCreateRequest(
@@ -588,6 +603,7 @@ class TestCreateUser:
         request = _make_mock_request(user=viewer_user)
 
         from services.user_management.main import UserCreateRequest
+
         with pytest.raises(HTTPException) as exc_info:
             await mod.create_user(
                 UserCreateRequest(
@@ -711,6 +727,7 @@ class TestRoleChange:
             with patch("services.user_management.main.UserRepository", return_value=mock_repo):
                 with patch.object(mod, "audit_log", new_callable=AsyncMock):
                     from services.user_management.main import RoleChangeRequest
+
                     result = await mod.change_user_role(
                         "user-id", RoleChangeRequest(role="security_analyst"), request
                     )
@@ -730,10 +747,9 @@ class TestRoleChange:
 
         try:
             from services.user_management.main import RoleChangeRequest
+
             with pytest.raises(HTTPException) as exc_info:
-                await mod.change_user_role(
-                    "user-id", RoleChangeRequest(role="superadmin"), request
-                )
+                await mod.change_user_role("user-id", RoleChangeRequest(role="superadmin"), request)
             assert exc_info.value.status_code == 400
         finally:
             mod.db_manager = old_db

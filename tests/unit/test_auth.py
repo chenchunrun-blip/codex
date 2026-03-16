@@ -24,7 +24,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # Set JWT_SECRET_KEY before importing auth module
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-unit-tests")
 
@@ -50,6 +49,7 @@ class TestWebDashboardAuth:
     def test_hash_password(self):
         """Test password hashing produces different hash each time."""
         from services.web_dashboard.auth import hash_password
+
         h1 = hash_password("test_password")
         h2 = hash_password("test_password")
         assert h1 != h2  # Different salts
@@ -58,18 +58,21 @@ class TestWebDashboardAuth:
     def test_verify_password_correct(self):
         """Test verifying correct password."""
         from services.web_dashboard.auth import hash_password, verify_password
+
         hashed = hash_password("my_password")
         assert verify_password("my_password", hashed) is True
 
     def test_verify_password_incorrect(self):
         """Test verifying incorrect password."""
         from services.web_dashboard.auth import hash_password, verify_password
+
         hashed = hash_password("my_password")
         assert verify_password("wrong_password", hashed) is False
 
     def test_create_access_token(self):
         """Test JWT token creation."""
         from services.web_dashboard.auth import create_access_token, decode_access_token
+
         token = create_access_token({"sub": "user-123", "username": "testuser"})
         assert isinstance(token, str)
         assert len(token) > 0
@@ -77,6 +80,7 @@ class TestWebDashboardAuth:
     def test_decode_valid_token(self):
         """Test decoding a valid JWT token."""
         from services.web_dashboard.auth import create_access_token, decode_access_token
+
         data = {"sub": "user-123", "username": "testuser", "role": "admin"}
         token = create_access_token(data)
         decoded = decode_access_token(token)
@@ -88,6 +92,7 @@ class TestWebDashboardAuth:
     def test_decode_expired_token(self):
         """Test that expired tokens are rejected."""
         from services.web_dashboard.auth import create_access_token, decode_access_token
+
         token = create_access_token(
             {"sub": "user-123"},
             expires_delta=timedelta(seconds=-1),
@@ -98,12 +103,14 @@ class TestWebDashboardAuth:
     def test_decode_invalid_token(self):
         """Test that invalid tokens return None."""
         from services.web_dashboard.auth import decode_access_token
+
         decoded = decode_access_token("invalid.token.here")
         assert decoded is None
 
     def test_permissions_for_admin(self):
         """Test admin role has all permissions."""
         from services.web_dashboard.auth import get_permissions_for_role
+
         perms = get_permissions_for_role("admin")
         assert "alerts.create" in perms
         assert "users.manage" in perms
@@ -112,6 +119,7 @@ class TestWebDashboardAuth:
     def test_permissions_for_analyst(self):
         """Test analyst role has limited permissions."""
         from services.web_dashboard.auth import get_permissions_for_role
+
         perms = get_permissions_for_role("analyst")
         assert "alerts.view" in perms
         assert "users.manage" not in perms
@@ -119,6 +127,7 @@ class TestWebDashboardAuth:
     def test_permissions_for_viewer(self):
         """Test viewer role is read-only."""
         from services.web_dashboard.auth import get_permissions_for_role
+
         perms = get_permissions_for_role("viewer")
         assert "alerts.view" in perms
         assert "alerts.create" not in perms
@@ -127,5 +136,6 @@ class TestWebDashboardAuth:
     def test_permissions_for_unknown_role(self):
         """Test unknown role returns empty permissions."""
         from services.web_dashboard.auth import get_permissions_for_role
+
         perms = get_permissions_for_role("nonexistent")
         assert perms == []

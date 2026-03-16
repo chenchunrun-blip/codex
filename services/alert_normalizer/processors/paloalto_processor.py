@@ -149,9 +149,13 @@ class PaloAltoProcessor:
 
             # Extract network information
             source_ip = self._extract_field(raw_alert, ["src", "srcaddr", "source_ip", "srcip"])
-            target_ip = self._extract_field(raw_alert, ["dst", "dstaddr", "destination_ip", "dstip"])
+            target_ip = self._extract_field(
+                raw_alert, ["dst", "dstaddr", "destination_ip", "dstip"]
+            )
             source_port = self._extract_port(raw_alert, ["sport", "srcport", "source_port"])
-            destination_port = self._extract_port(raw_alert, ["dport", "dstport", "destination_port"])
+            destination_port = self._extract_port(
+                raw_alert, ["dport", "dstport", "destination_port"]
+            )
             protocol = self._extract_field(raw_alert, ["proto", "protocol", "ip_protocol"])
 
             # Extract entity references
@@ -230,11 +234,7 @@ class PaloAltoProcessor:
         if "alert_id" in raw_alert and raw_alert["alert_id"]:
             return str(raw_alert["alert_id"])
 
-        alert_id = (
-            raw_alert.get("log_id")
-            or raw_alert.get("seqno")
-            or raw_alert.get("sessionid")
-        )
+        alert_id = raw_alert.get("log_id") or raw_alert.get("seqno") or raw_alert.get("sessionid")
 
         if alert_id:
             return f"PAN-{alert_id}"
@@ -248,8 +248,12 @@ class PaloAltoProcessor:
     def _extract_timestamp(self, raw_alert: Dict[str, Any]) -> datetime:
         """Extract and parse timestamp from PAN-OS alert."""
         timestamp_fields = [
-            "receive_time", "generated_time", "time_generated",
-            "timestamp", "cef_timestamp", "start",
+            "receive_time",
+            "generated_time",
+            "time_generated",
+            "timestamp",
+            "cef_timestamp",
+            "start",
         ]
 
         for field in timestamp_fields:
@@ -261,12 +265,12 @@ class PaloAltoProcessor:
 
                 if isinstance(timestamp_str, str):
                     formats = [
-                        "%Y/%m/%d %H:%M:%S",      # PAN-OS default
+                        "%Y/%m/%d %H:%M:%S",  # PAN-OS default
                         "%Y-%m-%dT%H:%M:%S.%fZ",
                         "%Y-%m-%dT%H:%M:%SZ",
                         "%Y-%m-%dT%H:%M:%S",
                         "%Y-%m-%d %H:%M:%S",
-                        "%b %d %H:%M:%S",          # Syslog format
+                        "%b %d %H:%M:%S",  # Syslog format
                     ]
 
                     for fmt in formats:

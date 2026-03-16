@@ -33,11 +33,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
+from sqlalchemy import text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -95,14 +95,25 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Initial Access",
         "description": "Adversaries may send phishing messages to gain access to victim systems.",
         "kill_chain_stage": "delivery",
-        "indicators": ["phishing", "spearphishing", "suspicious_email", "malicious_attachment", "email_link"],
+        "indicators": [
+            "phishing",
+            "spearphishing",
+            "suspicious_email",
+            "malicious_attachment",
+            "email_link",
+        ],
     },
     "T1566.001": {
         "name": "Spearphishing Attachment",
         "tactic": "Initial Access",
         "description": "Adversaries may send spearphishing emails with a malicious attachment.",
         "kill_chain_stage": "delivery",
-        "indicators": ["malicious_attachment", "macro_enabled", "suspicious_document", "office_macro"],
+        "indicators": [
+            "malicious_attachment",
+            "macro_enabled",
+            "suspicious_document",
+            "office_macro",
+        ],
     },
     "T1566.002": {
         "name": "Spearphishing Link",
@@ -116,8 +127,15 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Initial Access",
         "description": "Adversaries may exploit vulnerabilities in internet-facing applications.",
         "kill_chain_stage": "exploitation",
-        "indicators": ["web_exploit", "cve_exploit", "sql_injection", "rce", "remote_code_execution",
-                       "application_exploit", "vulnerability_exploit"],
+        "indicators": [
+            "web_exploit",
+            "cve_exploit",
+            "sql_injection",
+            "rce",
+            "remote_code_execution",
+            "application_exploit",
+            "vulnerability_exploit",
+        ],
     },
     "T1133": {
         "name": "External Remote Services",
@@ -131,15 +149,27 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Initial Access",
         "description": "Adversaries may use credentials of existing accounts to gain access.",
         "kill_chain_stage": "exploitation",
-        "indicators": ["credential_use", "account_compromise", "valid_credential", "stolen_credential"],
+        "indicators": [
+            "credential_use",
+            "account_compromise",
+            "valid_credential",
+            "stolen_credential",
+        ],
     },
     "T1110": {
         "name": "Brute Force",
         "tactic": "Credential Access",
         "description": "Adversaries may use brute force techniques to gain access to accounts.",
         "kill_chain_stage": "exploitation",
-        "indicators": ["brute_force", "password_spray", "credential_stuffing", "login_failure",
-                       "failed_login", "authentication_failure", "multiple_failed_logins"],
+        "indicators": [
+            "brute_force",
+            "password_spray",
+            "credential_stuffing",
+            "login_failure",
+            "failed_login",
+            "authentication_failure",
+            "multiple_failed_logins",
+        ],
     },
     "T1110.001": {
         "name": "Password Guessing",
@@ -161,8 +191,15 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Execution",
         "description": "Adversaries may abuse command and script interpreters to execute commands.",
         "kill_chain_stage": "installation",
-        "indicators": ["command_execution", "script_execution", "powershell", "bash_command",
-                       "cmd_execution", "shell_command", "scripting"],
+        "indicators": [
+            "command_execution",
+            "script_execution",
+            "powershell",
+            "bash_command",
+            "cmd_execution",
+            "shell_command",
+            "scripting",
+        ],
     },
     "T1059.001": {
         "name": "PowerShell",
@@ -183,7 +220,12 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Execution",
         "description": "Adversaries may rely on a user opening a malicious file or link.",
         "kill_chain_stage": "exploitation",
-        "indicators": ["user_click", "malicious_file_open", "macro_execution", "social_engineering"],
+        "indicators": [
+            "user_click",
+            "malicious_file_open",
+            "macro_execution",
+            "social_engineering",
+        ],
     },
     "T1203": {
         "name": "Exploitation for Client Execution",
@@ -228,16 +270,27 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Defense Evasion",
         "description": "Adversaries may delete or modify artifacts to remove evidence.",
         "kill_chain_stage": "installation",
-        "indicators": ["log_deletion", "log_tampering", "evidence_removal", "artifact_cleanup",
-                       "clear_logs", "indicator_removal"],
+        "indicators": [
+            "log_deletion",
+            "log_tampering",
+            "evidence_removal",
+            "artifact_cleanup",
+            "clear_logs",
+            "indicator_removal",
+        ],
     },
     "T1562": {
         "name": "Impair Defenses",
         "tactic": "Defense Evasion",
         "description": "Adversaries may maliciously modify security tools to avoid detection.",
         "kill_chain_stage": "installation",
-        "indicators": ["disable_antivirus", "disable_firewall", "security_tool_disabled",
-                       "tamper_protection", "defense_evasion"],
+        "indicators": [
+            "disable_antivirus",
+            "disable_firewall",
+            "security_tool_disabled",
+            "tamper_protection",
+            "defense_evasion",
+        ],
     },
     "T1027": {
         "name": "Obfuscated Files or Information",
@@ -252,15 +305,26 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Credential Access",
         "description": "Adversaries may dump credentials from OS credential stores.",
         "kill_chain_stage": "actions_on_objectives",
-        "indicators": ["credential_dump", "mimikatz", "lsass_access", "sam_dump", "ntds_dump",
-                       "password_dump"],
+        "indicators": [
+            "credential_dump",
+            "mimikatz",
+            "lsass_access",
+            "sam_dump",
+            "ntds_dump",
+            "password_dump",
+        ],
     },
     "T1552": {
         "name": "Unsecured Credentials",
         "tactic": "Credential Access",
         "description": "Adversaries may search for unsecured credentials in various locations.",
         "kill_chain_stage": "actions_on_objectives",
-        "indicators": ["credential_file", "password_file", "config_credential", "hardcoded_password"],
+        "indicators": [
+            "credential_file",
+            "password_file",
+            "config_credential",
+            "hardcoded_password",
+        ],
     },
     # --- Discovery ---
     "T1046": {
@@ -283,8 +347,14 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Lateral Movement",
         "description": "Adversaries may use remote services to move laterally.",
         "kill_chain_stage": "actions_on_objectives",
-        "indicators": ["lateral_movement", "rdp_lateral", "ssh_lateral", "smb_lateral",
-                       "remote_service", "psexec"],
+        "indicators": [
+            "lateral_movement",
+            "rdp_lateral",
+            "ssh_lateral",
+            "smb_lateral",
+            "remote_service",
+            "psexec",
+        ],
     },
     "T1570": {
         "name": "Lateral Tool Transfer",
@@ -314,8 +384,15 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Command and Control",
         "description": "Adversaries may communicate using application layer protocols.",
         "kill_chain_stage": "command_and_control",
-        "indicators": ["c2_http", "c2_https", "c2_dns", "beacon", "command_control",
-                       "c2_communication", "callback"],
+        "indicators": [
+            "c2_http",
+            "c2_https",
+            "c2_dns",
+            "beacon",
+            "command_control",
+            "c2_communication",
+            "callback",
+        ],
     },
     "T1571": {
         "name": "Non-Standard Port",
@@ -351,8 +428,12 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tactic": "Exfiltration",
         "description": "Adversaries may steal data by exfiltrating over an alternative protocol.",
         "kill_chain_stage": "actions_on_objectives",
-        "indicators": ["dns_exfiltration", "icmp_exfiltration", "ftp_exfiltration",
-                       "alternative_protocol_exfil"],
+        "indicators": [
+            "dns_exfiltration",
+            "icmp_exfiltration",
+            "ftp_exfiltration",
+            "alternative_protocol_exfil",
+        ],
     },
     "T1567": {
         "name": "Exfiltration Over Web Service",
@@ -369,13 +450,33 @@ MITRE_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "kill_chain_stage": "actions_on_objectives",
         "indicators": ["ransomware", "file_encryption", "crypto_locker", "ransom_note"],
     },
+    "T1498": {
+        "name": "Network Denial of Service",
+        "tactic": "Impact",
+        "description": "Adversaries may perform network denial of service attacks to degrade or block availability.",
+        "kill_chain_stage": "actions_on_objectives",
+        "indicators": [
+            "network_dos",
+            "ddos",
+            "reflection_attack",
+            "amplification_attack",
+            "flood_attack",
+            "bandwidth_exhaustion",
+        ],
+    },
     "T1499": {
         "name": "Endpoint Denial of Service",
         "tactic": "Impact",
         "description": "Adversaries may perform denial of service attacks on endpoints.",
         "kill_chain_stage": "actions_on_objectives",
-        "indicators": ["ddos", "dos_attack", "service_disruption", "resource_exhaustion",
-                       "denial_of_service", "flood_attack"],
+        "indicators": [
+            "ddos",
+            "dos_attack",
+            "service_disruption",
+            "resource_exhaustion",
+            "denial_of_service",
+            "flood_attack",
+        ],
     },
     "T1485": {
         "name": "Data Destruction",
@@ -444,8 +545,18 @@ KILL_CHAIN_STAGES = {
         "order": 7,
         "name": "Actions on Objectives",
         "description": "Adversary is accomplishing their goal (data theft, destruction, etc.).",
-        "typical_techniques": ["T1041", "T1048", "T1567", "T1021", "T1570", "T1005",
-                                "T1003", "T1486", "T1499", "T1485"],
+        "typical_techniques": [
+            "T1041",
+            "T1048",
+            "T1567",
+            "T1021",
+            "T1570",
+            "T1005",
+            "T1003",
+            "T1486",
+            "T1499",
+            "T1485",
+        ],
     },
 }
 
@@ -501,12 +612,36 @@ def classify_kill_chain_stage(
         "weaponization": ["craft", "payload", "weaponiz", "exploit kit", "obfuscat"],
         "delivery": ["email", "phish", "attachment", "download", "deliver", "dropper"],
         "exploitation": ["exploit", "vulnerab", "brute", "injection", "overflow", "bypass"],
-        "installation": ["install", "persist", "backdoor", "implant", "trojan", "rootkit",
-                         "registry", "scheduled task", "service creat"],
-        "command_and_control": ["c2", "c&c", "command and control", "beacon", "callback",
-                                 "reverse shell", "tunnel"],
-        "actions_on_objectives": ["exfiltrat", "encrypt", "ransom", "destroy", "steal",
-                                   "lateral", "dump", "credential"],
+        "installation": [
+            "install",
+            "persist",
+            "backdoor",
+            "implant",
+            "trojan",
+            "rootkit",
+            "registry",
+            "scheduled task",
+            "service creat",
+        ],
+        "command_and_control": [
+            "c2",
+            "c&c",
+            "command and control",
+            "beacon",
+            "callback",
+            "reverse shell",
+            "tunnel",
+        ],
+        "actions_on_objectives": [
+            "exfiltrat",
+            "encrypt",
+            "ransom",
+            "destroy",
+            "steal",
+            "lateral",
+            "dump",
+            "credential",
+        ],
     }
 
     for stage, keywords in keyword_stage_map.items():
@@ -547,7 +682,8 @@ def classify_kill_chain_stage(
 
     # Determine secondary stages (any stage with > 50% of primary score)
     secondary_stages = [
-        stage for stage, score in stage_scores.items()
+        stage
+        for stage, score in stage_scores.items()
         if stage != primary_stage and score > max_score * 0.5 and score > 0
     ]
 
@@ -605,13 +741,15 @@ def extract_ttps(
     for tech_id in type_techniques:
         if tech_id in MITRE_TECHNIQUES:
             tech = MITRE_TECHNIQUES[tech_id]
-            matched_techniques.append({
-                "technique_id": tech_id,
-                "technique_name": tech["name"],
-                "tactic": tech["tactic"],
-                "confidence": 0.7,
-                "match_source": "alert_type",
-            })
+            matched_techniques.append(
+                {
+                    "technique_id": tech_id,
+                    "technique_name": tech["name"],
+                    "tactic": tech["tactic"],
+                    "confidence": 0.7,
+                    "match_source": "alert_type",
+                }
+            )
             matched_tactics.add(tech["tactic"])
 
     # Match based on description indicator keywords
@@ -631,29 +769,29 @@ def extract_ttps(
 
         if indicator_match_count > 0:
             confidence = min(0.5 + (indicator_match_count * 0.15), 0.95)
-            matched_techniques.append({
-                "technique_id": tech_id,
-                "technique_name": tech["name"],
-                "tactic": tech["tactic"],
-                "confidence": round(confidence, 3),
-                "match_source": "description_indicators",
-                "matched_indicators": matched_indicators,
-            })
+            matched_techniques.append(
+                {
+                    "technique_id": tech_id,
+                    "technique_name": tech["name"],
+                    "tactic": tech["tactic"],
+                    "confidence": round(confidence, 3),
+                    "match_source": "description_indicators",
+                    "matched_indicators": matched_indicators,
+                }
+            )
             matched_tactics.add(tech["tactic"])
 
     # Additional matching based on IOC presence
     if file_hash:
-        _add_ioc_technique(matched_techniques, matched_tactics, "T1204",
-                           "file_hash_present", 0.5)
-        _add_ioc_technique(matched_techniques, matched_tactics, "T1105",
-                           "file_hash_present", 0.4)
+        _add_ioc_technique(matched_techniques, matched_tactics, "T1204", "file_hash_present", 0.5)
+        _add_ioc_technique(matched_techniques, matched_tactics, "T1105", "file_hash_present", 0.4)
 
     if url:
-        _add_ioc_technique(matched_techniques, matched_tactics, "T1071",
-                           "url_present", 0.4)
+        _add_ioc_technique(matched_techniques, matched_tactics, "T1071", "url_present", 0.4)
         if "phish" in description_lower or alert_type == "phishing":
-            _add_ioc_technique(matched_techniques, matched_tactics, "T1566.002",
-                               "url_with_phishing_context", 0.7)
+            _add_ioc_technique(
+                matched_techniques, matched_tactics, "T1566.002", "url_with_phishing_context", 0.7
+            )
 
     # Sort by confidence descending
     matched_techniques.sort(key=lambda x: x["confidence"], reverse=True)
@@ -701,13 +839,15 @@ def _add_ioc_technique(
             return
 
     tech = MITRE_TECHNIQUES[tech_id]
-    matched_techniques.append({
-        "technique_id": tech_id,
-        "technique_name": tech["name"],
-        "tactic": tech["tactic"],
-        "confidence": confidence,
-        "match_source": match_source,
-    })
+    matched_techniques.append(
+        {
+            "technique_id": tech_id,
+            "technique_name": tech["name"],
+            "tactic": tech["tactic"],
+            "confidence": confidence,
+            "match_source": match_source,
+        }
+    )
     matched_tactics.add(tech["tactic"])
 
 
@@ -738,7 +878,11 @@ KILL_CHAIN_TRANSITIONS: Dict[str, List[Tuple[str, float, str]]] = {
     "exploitation": [
         ("installation", 0.5, "Successful exploitation typically leads to persistence setup"),
         ("command_and_control", 0.25, "Adversary may immediately establish C2 channel"),
-        ("actions_on_objectives", 0.15, "Quick smash-and-grab if objective is immediately accessible"),
+        (
+            "actions_on_objectives",
+            0.15,
+            "Quick smash-and-grab if objective is immediately accessible",
+        ),
         ("exploitation", 0.1, "Adversary may exploit additional vulnerabilities"),
     ],
     "installation": [
@@ -790,19 +934,23 @@ def predict_next_steps(
         for tech_id in typical_techniques:
             if tech_id in MITRE_TECHNIQUES:
                 tech = MITRE_TECHNIQUES[tech_id]
-                technique_details.append({
-                    "technique_id": tech_id,
-                    "technique_name": tech["name"],
-                    "tactic": tech["tactic"],
-                })
+                technique_details.append(
+                    {
+                        "technique_id": tech_id,
+                        "technique_name": tech["name"],
+                        "tactic": tech["tactic"],
+                    }
+                )
 
-        predictions.append({
-            "next_stage": next_stage,
-            "stage_name": stage_info.get("name", next_stage),
-            "probability": probability,
-            "description": description,
-            "expected_techniques": technique_details[:5],  # Top 5
-        })
+        predictions.append(
+            {
+                "next_stage": next_stage,
+                "stage_name": stage_info.get("name", next_stage),
+                "probability": probability,
+                "description": description,
+                "expected_techniques": technique_details[:5],  # Top 5
+            }
+        )
 
     # Sort by probability descending
     predictions.sort(key=lambda x: x["probability"], reverse=True)
@@ -816,7 +964,7 @@ def predict_next_steps(
         "current_stage": current_stage,
         "current_stage_name": current_info.get("name", current_stage),
         "current_stage_order": current_info.get("order", 0),
-        "predicted_next_steps": predictions,
+        "predictions": predictions,
         "most_likely_next": predictions[0] if predictions else None,
         "recommendations": recommendations,
         "urgency": _calculate_urgency(current_stage, severity),
@@ -844,11 +992,20 @@ def _generate_recommendations(
     stage_recommendations = {
         "reconnaissance": [
             {"action": "Monitor network traffic for scanning activity", "priority": "medium"},
-            {"action": "Review firewall rules for unnecessary exposed services", "priority": "high"},
-            {"action": "Enable IDS/IPS signatures for reconnaissance detection", "priority": "medium"},
+            {
+                "action": "Review firewall rules for unnecessary exposed services",
+                "priority": "high",
+            },
+            {
+                "action": "Enable IDS/IPS signatures for reconnaissance detection",
+                "priority": "medium",
+            },
         ],
         "weaponization": [
-            {"action": "Update email filtering rules for malicious attachments", "priority": "high"},
+            {
+                "action": "Update email filtering rules for malicious attachments",
+                "priority": "high",
+            },
             {"action": "Ensure endpoint protection signatures are current", "priority": "high"},
             {"action": "Review application whitelisting policies", "priority": "medium"},
         ],
@@ -858,10 +1015,16 @@ def _generate_recommendations(
             {"action": "Alert users about phishing campaign indicators", "priority": "high"},
         ],
         "exploitation": [
-            {"action": "Apply emergency patches for exploited vulnerabilities", "priority": "critical"},
+            {
+                "action": "Apply emergency patches for exploited vulnerabilities",
+                "priority": "critical",
+            },
             {"action": "Isolate affected systems from the network", "priority": "critical"},
             {"action": "Enable enhanced logging on affected systems", "priority": "high"},
-            {"action": "Lock compromised accounts and force password resets", "priority": "critical"},
+            {
+                "action": "Lock compromised accounts and force password resets",
+                "priority": "critical",
+            },
         ],
         "installation": [
             {"action": "Perform full malware scan on affected systems", "priority": "critical"},
@@ -880,7 +1043,10 @@ def _generate_recommendations(
             {"action": "Preserve forensic evidence before remediation", "priority": "critical"},
             {"action": "Assess data exposure and begin incident response", "priority": "critical"},
             {"action": "Notify CISO and activate incident response plan", "priority": "critical"},
-            {"action": "Monitor for lateral movement to additional systems", "priority": "critical"},
+            {
+                "action": "Monitor for lateral movement to additional systems",
+                "priority": "critical",
+            },
         ],
     }
 
@@ -945,7 +1111,9 @@ async def analyze_alert(alert: SecurityAlert) -> Dict[str, Any]:
     """
     logger.info(f"Analyzing attack chain for alert {alert.alert_id}")
 
-    alert_type = alert.alert_type.value if hasattr(alert.alert_type, "value") else str(alert.alert_type)
+    alert_type = (
+        alert.alert_type.value if hasattr(alert.alert_type, "value") else str(alert.alert_type)
+    )
     severity = alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity)
 
     # Build IOCs dict from alert
@@ -1008,7 +1176,8 @@ async def analyze_alert(alert: SecurityAlert) -> Dict[str, Any]:
             "urgency": predictions["urgency"],
             "most_likely_next_stage": (
                 predictions["most_likely_next"]["stage_name"]
-                if predictions.get("most_likely_next") else None
+                if predictions.get("most_likely_next")
+                else None
             ),
         },
     }
@@ -1048,7 +1217,7 @@ async def persist_analysis_to_db(alert_id: str, analysis: Dict[str, Any]):
                     "context_data": json.dumps(analysis),
                     "source": "attack-chain-analyzer",
                     "confidence_score": analysis.get("kill_chain", {}).get("confidence", 0.5),
-                }
+                },
             )
             await session.commit()
             logger.debug(f"Attack chain analysis persisted for alert {alert_id}")
@@ -1328,13 +1497,15 @@ async def list_mitre_techniques(
         if kill_chain_stage and tech["kill_chain_stage"] != kill_chain_stage:
             continue
 
-        techniques.append({
-            "technique_id": tech_id,
-            "name": tech["name"],
-            "tactic": tech["tactic"],
-            "kill_chain_stage": tech["kill_chain_stage"],
-            "description": tech["description"],
-        })
+        techniques.append(
+            {
+                "technique_id": tech_id,
+                "name": tech["name"],
+                "tactic": tech["tactic"],
+                "kill_chain_stage": tech["kill_chain_stage"],
+                "description": tech["description"],
+            }
+        )
 
     return {
         "success": True,
@@ -1365,19 +1536,23 @@ async def list_kill_chain_stages():
         for tech_id in stage["typical_techniques"]:
             if tech_id in MITRE_TECHNIQUES:
                 tech = MITRE_TECHNIQUES[tech_id]
-                technique_details.append({
-                    "technique_id": tech_id,
-                    "name": tech["name"],
-                    "tactic": tech["tactic"],
-                })
+                technique_details.append(
+                    {
+                        "technique_id": tech_id,
+                        "name": tech["name"],
+                        "tactic": tech["tactic"],
+                    }
+                )
 
-        stages.append({
-            "stage_id": stage_id,
-            "order": stage["order"],
-            "name": stage["name"],
-            "description": stage["description"],
-            "typical_techniques": technique_details,
-        })
+        stages.append(
+            {
+                "stage_id": stage_id,
+                "order": stage["order"],
+                "name": stage["name"],
+                "description": stage["description"],
+                "typical_techniques": technique_details,
+            }
+        )
 
     return {
         "success": True,

@@ -27,18 +27,17 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
-
-from shared.models.alert import AlertType, Severity
+import pytest
 from ai_triage_agent.agent import AITriageAgent
 from ai_triage_agent.prompts import PromptTemplates
 from ai_triage_agent.risk_scoring import RiskScoringEngine
-
+from shared.models.alert import AlertType, Severity
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_alert():
@@ -146,64 +145,77 @@ def ai_agent():
 @pytest.fixture
 def mock_llm_response():
     """Mock LLM JSON response."""
-    return json.dumps({
-        "risk_assessment": {
-            "risk_level": "high",
-            "confidence": 85,
-            "reasoning": "Malware detected with high threat intelligence score"
-        },
-        "malware_analysis": {
-            "malware_type": "trojan",
-            "severity": "high",
-            "capabilities": ["data_exfiltration", "persistence"],
-            "indicators_of_compromise": [
-                {"type": "hash", "value": "5d41402abc4b2a76b9719d911017c592", "confidence": "high"}
-            ]
-        },
-        "impact_assessment": {
-            "technical_impact": "Potential data exfiltration and system compromise",
-            "business_impact": "High impact on production systems",
-            "affected_assets": ["server-prod-001"],
-            "affected_users": "All users accessing production systems",
-            "data_at_risk": "Sensitive production data"
-        },
-        "recommended_actions": [
-            {
-                "action": "Isolate infected endpoint",
-                "priority": "critical",
-                "type": "containment",
-                "urgency": "immediate",
-                "responsible_team": "SOC"
+    return json.dumps(
+        {
+            "risk_assessment": {
+                "risk_level": "high",
+                "confidence": 85,
+                "reasoning": "Malware detected with high threat intelligence score",
             },
-            {
-                "action": "Conduct forensic analysis",
-                "priority": "high",
-                "type": "investigation",
-                "urgency": "within_1_hour",
-                "responsible_team": "IR"
-            }
-        ],
-        "investigation_steps": [
-            "Isolate affected system",
-            "Collect memory and disk images",
-            "Analyze malware artifacts"
-        ],
-        "requires_human_review": True,
-        "escalation_trigger": "Malware detected with high confidence"
-    })
+            "malware_analysis": {
+                "malware_type": "trojan",
+                "severity": "high",
+                "capabilities": ["data_exfiltration", "persistence"],
+                "indicators_of_compromise": [
+                    {
+                        "type": "hash",
+                        "value": "5d41402abc4b2a76b9719d911017c592",
+                        "confidence": "high",
+                    }
+                ],
+            },
+            "impact_assessment": {
+                "technical_impact": "Potential data exfiltration and system compromise",
+                "business_impact": "High impact on production systems",
+                "affected_assets": ["server-prod-001"],
+                "affected_users": "All users accessing production systems",
+                "data_at_risk": "Sensitive production data",
+            },
+            "recommended_actions": [
+                {
+                    "action": "Isolate infected endpoint",
+                    "priority": "critical",
+                    "type": "containment",
+                    "urgency": "immediate",
+                    "responsible_team": "SOC",
+                },
+                {
+                    "action": "Conduct forensic analysis",
+                    "priority": "high",
+                    "type": "investigation",
+                    "urgency": "within_1_hour",
+                    "responsible_team": "IR",
+                },
+            ],
+            "investigation_steps": [
+                "Isolate affected system",
+                "Collect memory and disk images",
+                "Analyze malware artifacts",
+            ],
+            "requires_human_review": True,
+            "escalation_trigger": "Malware detected with high confidence",
+        }
+    )
 
 
 # =============================================================================
 # RiskScoringEngine Tests
 # =============================================================================
 
+
 class TestRiskScoringEngine:
     """Test risk scoring engine calculations."""
 
-    def test_calculate_risk_score_all_context(self, risk_engine, sample_alert,
-                                              sample_threat_intel, sample_asset_context,
-                                              sample_network_context, sample_user_context,
-                                              sample_historical_context):
+    def test_calculate_risk_score_all_context(
+        self,
+        risk_engine,
+        sample_alert,
+        sample_threat_intel,
+        sample_asset_context,
+        sample_network_context,
+        sample_user_context,
+        sample_historical_context,
+    ):
         """Test risk score calculation with all context available."""
         result = risk_engine.calculate_risk_score(
             alert=sample_alert,
@@ -257,12 +269,8 @@ class TestRiskScoringEngine:
         # Low threat intel
         low_threat = {"aggregate_score": 10, "detected_by_count": 0}
 
-        high_result = risk_engine.calculate_risk_score(
-            sample_alert, threat_intel=high_threat
-        )
-        low_result = risk_engine.calculate_risk_score(
-            sample_alert, threat_intel=low_threat
-        )
+        high_result = risk_engine.calculate_risk_score(sample_alert, threat_intel=high_threat)
+        low_result = risk_engine.calculate_risk_score(sample_alert, threat_intel=low_threat)
 
         # High threat intel should increase risk score
         assert high_result["risk_score"] > low_result["risk_score"]
@@ -277,9 +285,7 @@ class TestRiskScoringEngine:
         critical_result = risk_engine.calculate_risk_score(
             sample_alert, asset_context=critical_asset
         )
-        low_result = risk_engine.calculate_risk_score(
-            sample_alert, asset_context=low_asset
-        )
+        low_result = risk_engine.calculate_risk_score(sample_alert, asset_context=low_asset)
 
         assert critical_result["risk_score"] > low_result["risk_score"]
 
@@ -352,13 +358,20 @@ class TestRiskScoringEngine:
 # PromptTemplates Tests
 # =============================================================================
 
+
 class TestPromptTemplates:
     """Test prompt template generation and formatting."""
 
-    def test_get_prompt_for_malware_alert(self, prompt_templates, sample_alert,
-                                          sample_threat_intel, sample_network_context,
-                                          sample_asset_context, sample_user_context,
-                                          sample_historical_context):
+    def test_get_prompt_for_malware_alert(
+        self,
+        prompt_templates,
+        sample_alert,
+        sample_threat_intel,
+        sample_network_context,
+        sample_asset_context,
+        sample_user_context,
+        sample_historical_context,
+    ):
         """Test malware-specific prompt generation."""
         context = prompt_templates.format_context(
             alert=sample_alert,
@@ -506,17 +519,25 @@ class TestPromptTemplates:
 # AITriageAgent Tests
 # =============================================================================
 
+
 class TestAITriageAgent:
     """Test AI triage agent analysis workflow."""
 
     @pytest.mark.asyncio
-    async def test_analyze_alert_with_mock_llm(self, ai_agent, sample_alert,
-                                                sample_threat_intel, sample_network_context,
-                                                sample_asset_context, sample_user_context,
-                                                sample_historical_context, mock_llm_response):
+    async def test_analyze_alert_with_mock_llm(
+        self,
+        ai_agent,
+        sample_alert,
+        sample_threat_intel,
+        sample_network_context,
+        sample_asset_context,
+        sample_user_context,
+        sample_historical_context,
+        mock_llm_response,
+    ):
         """Test complete alert analysis with mock LLM."""
         # Mock the LLM call
-        with patch.object(ai_agent, '_call_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(ai_agent, "_call_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             result = await ai_agent.analyze_alert(
@@ -683,7 +704,9 @@ class TestAITriageAgent:
     async def test_analyze_alert_error_handling(self, ai_agent, sample_alert):
         """Test error handling in analyze_alert."""
         # Mock risk engine to raise exception
-        with patch.object(ai_agent.risk_engine, 'calculate_risk_score', side_effect=Exception("Test error")):
+        with patch.object(
+            ai_agent.risk_engine, "calculate_risk_score", side_effect=Exception("Test error")
+        ):
             result = await ai_agent.analyze_alert(sample_alert)
 
             # Should return fallback result
@@ -695,17 +718,25 @@ class TestAITriageAgent:
 # Integration Tests
 # =============================================================================
 
+
 class TestAITriageAgentIntegration:
     """Integration tests for end-to-end analysis workflow."""
 
     @pytest.mark.asyncio
-    async def test_end_to_end_analysis_workflow(self, ai_agent, sample_alert,
-                                                 sample_threat_intel, sample_network_context,
-                                                 sample_asset_context, sample_user_context,
-                                                 sample_historical_context, mock_llm_response):
+    async def test_end_to_end_analysis_workflow(
+        self,
+        ai_agent,
+        sample_alert,
+        sample_threat_intel,
+        sample_network_context,
+        sample_asset_context,
+        sample_user_context,
+        sample_historical_context,
+        mock_llm_response,
+    ):
         """Test complete analysis workflow with all components."""
         # Mock LLM call
-        with patch.object(ai_agent, '_call_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(ai_agent, "_call_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             # Perform analysis
@@ -741,7 +772,7 @@ class TestAITriageAgentIntegration:
     @pytest.mark.asyncio
     async def test_workflow_with_minimal_context(self, ai_agent, sample_alert, mock_llm_response):
         """Test workflow with minimal context (edge case)."""
-        with patch.object(ai_agent, '_call_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(ai_agent, "_call_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             # Only alert, no context
@@ -756,12 +787,9 @@ class TestAITriageAgentIntegration:
     async def test_workflow_concurrent_analysis(self, ai_agent, sample_alert, mock_llm_response):
         """Test analyzing multiple alerts concurrently."""
         # Create multiple alerts
-        alerts = [
-            {**sample_alert, "alert_id": f"alert-{i}"}
-            for i in range(5)
-        ]
+        alerts = [{**sample_alert, "alert_id": f"alert-{i}"} for i in range(5)]
 
-        with patch.object(ai_agent, '_call_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(ai_agent, "_call_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             # Analyze all alerts concurrently
@@ -778,6 +806,7 @@ class TestAITriageAgentIntegration:
 # =============================================================================
 # Test Utilities
 # =============================================================================
+
 
 def test_agent_initialization():
     """Test agent initialization with different configurations."""

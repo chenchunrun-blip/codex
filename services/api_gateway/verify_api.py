@@ -19,8 +19,8 @@ API Gateway Verification Script.
 This script verifies that the API Gateway can start and respond to basic requests.
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add project root to Python path
@@ -36,10 +36,11 @@ print()
 print("✓ Step 1: Checking dependencies...")
 try:
     import fastapi
-    import uvicorn
-    import sqlalchemy
-    import pydantic
     import loguru
+    import pydantic
+    import sqlalchemy
+    import uvicorn
+
     print(f"  FastAPI: {fastapi.__version__}")
     print(f"  Uvicorn: {uvicorn.__version__}")
     print(f"  SQLAlchemy: {sqlalchemy.__version__}")
@@ -56,14 +57,19 @@ print()
 print("✓ Step 2: Checking imports...")
 try:
     from main import app
+
     print("  Main app: ✓")
     from routes import alerts
+
     print("  Alerts router: ✓")
     from routes import analytics
+
     print("  Analytics router: ✓")
     from models import requests
+
     print("  Request models: ✓")
     from models import responses
+
     print("  Response models: ✓")
 except ImportError as e:
     print(f"  ✗ Import error: {e}")
@@ -75,9 +81,9 @@ print()
 print("✓ Step 3: Checking routes...")
 routes = []
 for route in app.routes:
-    if hasattr(route, 'path') and hasattr(route, 'methods'):
+    if hasattr(route, "path") and hasattr(route, "methods"):
         for method in route.methods:
-            if method != 'HEAD':
+            if method != "HEAD":
                 routes.append(f"{method} {route.path}")
 
 print(f"  Total routes: {len(routes)}")

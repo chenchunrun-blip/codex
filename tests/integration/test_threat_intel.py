@@ -20,11 +20,12 @@ Tests real API integrations with VirusTotal, Abuse.ch, and OTX.
 
 import asyncio
 import os
+
 import pytest
 
-from services.threat_intel_aggregator.sources.virustotal import VirusTotalSource
 from services.threat_intel_aggregator.sources.abuse_ch import AbuseCHSource
 from services.threat_intel_aggregator.sources.otx import OTXSource
+from services.threat_intel_aggregator.sources.virustotal import VirusTotalSource
 
 
 class TestVirusTotalIntegration:

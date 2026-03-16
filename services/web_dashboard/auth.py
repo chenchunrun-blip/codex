@@ -21,15 +21,14 @@ and user authentication logic.
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from bcrypt import hashpw, gensalt, checkpw
+from bcrypt import checkpw, gensalt, hashpw
 from jose import JWTError, jwt
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from shared.database.models import User
 from shared.utils import get_logger
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
 
@@ -59,8 +58,8 @@ def hash_password(password: str) -> str:
         Hashed password as a string
     """
     salt = gensalt()
-    hashed = hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    hashed = hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -74,7 +73,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    return checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
@@ -97,10 +96,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     else:
         expire = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow()
-    })
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
 
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return encoded_jwt
@@ -158,11 +154,7 @@ async def get_user_by_id(session: AsyncSession, user_id: str) -> Optional[User]:
     return result.scalar_one_or_none()
 
 
-async def authenticate_user(
-    session: AsyncSession,
-    username: str,
-    password: str
-) -> Optional[User]:
+async def authenticate_user(session: AsyncSession, username: str, password: str) -> Optional[User]:
     """
     Authenticate a user with username and password.
 
@@ -213,7 +205,7 @@ def user_to_dict(user: User) -> Dict[str, Any]:
         "department": user.department,
         "last_login": user.last_login_at.isoformat() if user.last_login_at else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "permissions": get_permissions_for_role(user.role)
+        "permissions": get_permissions_for_role(user.role),
     }
 
 

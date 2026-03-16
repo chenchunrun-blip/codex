@@ -2,17 +2,16 @@
 rollback, condition evaluation, audit logging, DB persistence, and API endpoints."""
 
 import asyncio
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, patch
 
+import pytest
 from shared.models import (
     AutomationPlaybook,
     PlaybookAction,
     PlaybookExecution,
     WorkflowStatus,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -276,11 +275,24 @@ class TestActionExecutorRegistry:
         from services.automation_orchestrator.main import ACTION_EXECUTORS
 
         expected_types = [
-            "ssh_command", "edr_command", "email_command", "api_call",
-            "notification", "firewall_rule", "ad_command", "network_change",
-            "email_action", "email_filter", "security_filter",
-            "threat_intel_upload", "rate_limit", "security_config",
-            "forensics", "access_control", "log_collection", "audit_log",
+            "ssh_command",
+            "edr_command",
+            "email_command",
+            "api_call",
+            "notification",
+            "firewall_rule",
+            "ad_command",
+            "network_change",
+            "email_action",
+            "email_filter",
+            "security_filter",
+            "threat_intel_upload",
+            "rate_limit",
+            "security_config",
+            "forensics",
+            "access_control",
+            "log_collection",
+            "audit_log",
             "workflow_trigger",
         ]
         for action_type in expected_types:
@@ -300,9 +312,15 @@ class TestActionExecutorRegistry:
 class TestConditionEvaluation:
     """Test condition evaluation in action execution."""
 
+    def _mock_executor(self):
+        """Create a mock executor that returns success."""
+        executor = Mock()
+        executor.execute = AsyncMock(return_value={"status": "success", "output": "ok"})
+        return executor
+
     @pytest.mark.asyncio
     async def test_condition_equal_met(self):
-        from services.automation_orchestrator.main import execute_playbook_action
+        from services.automation_orchestrator.main import ACTION_EXECUTORS, execute_playbook_action
 
         action = _make_action(
             conditions=[{"field": "severity", "operator": "==", "value": "high"}],
@@ -310,7 +328,11 @@ class TestConditionEvaluation:
         execution = _make_execution()
         context = {"severity": "high", "target_ip": "10.0.0.1"}
 
-        with patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock):
+        mock_exec = self._mock_executor()
+        with (
+            patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock),
+            patch.dict(ACTION_EXECUTORS, {"ssh_command": mock_exec}),
+        ):
             result = await execute_playbook_action(execution, action, context)
 
         assert result["status"] == "success"
@@ -332,7 +354,7 @@ class TestConditionEvaluation:
 
     @pytest.mark.asyncio
     async def test_condition_not_equal_met(self):
-        from services.automation_orchestrator.main import execute_playbook_action
+        from services.automation_orchestrator.main import ACTION_EXECUTORS, execute_playbook_action
 
         action = _make_action(
             conditions=[{"field": "severity", "operator": "!=", "value": "low"}],
@@ -340,14 +362,18 @@ class TestConditionEvaluation:
         execution = _make_execution()
         context = {"severity": "high", "target_ip": "10.0.0.1"}
 
-        with patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock):
+        mock_exec = self._mock_executor()
+        with (
+            patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock),
+            patch.dict(ACTION_EXECUTORS, {"ssh_command": mock_exec}),
+        ):
             result = await execute_playbook_action(execution, action, context)
 
         assert result["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_condition_in_met(self):
-        from services.automation_orchestrator.main import execute_playbook_action
+        from services.automation_orchestrator.main import ACTION_EXECUTORS, execute_playbook_action
 
         action = _make_action(
             conditions=[{"field": "risk_level", "operator": "in", "value": ["HIGH", "CRITICAL"]}],
@@ -355,7 +381,11 @@ class TestConditionEvaluation:
         execution = _make_execution()
         context = {"risk_level": "HIGH", "target_ip": "10.0.0.1"}
 
-        with patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock):
+        mock_exec = self._mock_executor()
+        with (
+            patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock),
+            patch.dict(ACTION_EXECUTORS, {"ssh_command": mock_exec}),
+        ):
             result = await execute_playbook_action(execution, action, context)
 
         assert result["status"] == "success"
@@ -377,13 +407,17 @@ class TestConditionEvaluation:
 
     @pytest.mark.asyncio
     async def test_no_conditions_executes(self):
-        from services.automation_orchestrator.main import execute_playbook_action
+        from services.automation_orchestrator.main import ACTION_EXECUTORS, execute_playbook_action
 
         action = _make_action(conditions=[])
         execution = _make_execution()
         context = {"target_ip": "10.0.0.1"}
 
-        with patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock):
+        mock_exec = self._mock_executor()
+        with (
+            patch("services.automation_orchestrator.main.audit_log", new_callable=AsyncMock),
+            patch.dict(ACTION_EXECUTORS, {"ssh_command": mock_exec}),
+        ):
             result = await execute_playbook_action(execution, action, context)
 
         assert result["status"] == "success"
@@ -399,7 +433,11 @@ class TestActionTimeout:
 
     @pytest.mark.asyncio
     async def test_action_timeout(self):
-        from services.automation_orchestrator.main import execute_playbook_action, ActionExecutor, ACTION_EXECUTORS
+        from services.automation_orchestrator.main import (
+            ACTION_EXECUTORS,
+            ActionExecutor,
+            execute_playbook_action,
+        )
 
         class SlowExecutor(ActionExecutor):
             async def execute(self, action, context):
@@ -515,8 +553,14 @@ class TestPlaybookExecution:
         import services.automation_orchestrator.main as mod
 
         actions = [
-            _make_action(action_id="a1", action_type="notification", parameters={"channels": [], "recipients": [], "message": "test"}),
-            _make_action(action_id="a2", action_type="firewall_rule", parameters={"rule_template": "block"}),
+            _make_action(
+                action_id="a1",
+                action_type="notification",
+                parameters={"channels": [], "recipients": [], "message": "test"},
+            ),
+            _make_action(
+                action_id="a2", action_type="firewall_rule", parameters={"rule_template": "block"}
+            ),
         ]
         playbook = _make_playbook(actions=actions, approval_required=False)
         execution = _make_execution(status=WorkflowStatus.PENDING)
@@ -542,15 +586,19 @@ class TestPlaybookExecution:
     @pytest.mark.asyncio
     async def test_execution_with_failure_triggers_rollback(self):
         import services.automation_orchestrator.main as mod
-        from services.automation_orchestrator.main import ActionExecutor, ACTION_EXECUTORS
+        from services.automation_orchestrator.main import ACTION_EXECUTORS, ActionExecutor
 
         class FailingExecutor(ActionExecutor):
             async def execute(self, action, context):
                 return {"status": "failed", "error": "Simulated failure"}
 
         actions = [
-            _make_action(action_id="a1", action_type="notification", rollback_action="undo_a1",
-                         parameters={"channels": [], "recipients": [], "message": "test"}),
+            _make_action(
+                action_id="a1",
+                action_type="notification",
+                rollback_action="undo_a1",
+                parameters={"channels": [], "recipients": [], "message": "test"},
+            ),
             _make_action(action_id="a2", action_type="ssh_command", rollback_action="undo_a2"),
         ]
         playbook = _make_playbook(actions=actions, approval_required=False)
@@ -600,8 +648,11 @@ class TestPlaybookExecution:
         import services.automation_orchestrator.main as mod
 
         actions = [
-            _make_action(action_id="a1", action_type="notification",
-                         parameters={"channels": [], "recipients": [], "message": "test"}),
+            _make_action(
+                action_id="a1",
+                action_type="notification",
+                parameters={"channels": [], "recipients": [], "message": "test"},
+            ),
         ]
         playbook = _make_playbook(actions=actions, approval_required=True)
         execution = _make_execution(status=WorkflowStatus.PENDING, approval_status="approved")

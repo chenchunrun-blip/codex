@@ -286,8 +286,7 @@ class UserCollector:
             "cache_size": len(self.cache),
             "cache_ttl_seconds": int(self.cache_ttl.total_seconds()),
             "expired_entries": sum(
-                1 for _, expiry in self.cache.values()
-                if datetime.utcnow() >= expiry
+                1 for _, expiry in self.cache.values() if datetime.utcnow() >= expiry
             ),
         }
 

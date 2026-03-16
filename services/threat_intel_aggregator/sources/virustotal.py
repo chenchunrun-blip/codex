@@ -24,7 +24,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import aiohttp
-
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -188,7 +187,8 @@ class VirusTotalSource:
             "detected": data.get("detected_urls", []) != [],
             "detection_rate": data.get("detected_communicating_percent", 0),
             "positives": len(data.get("detected_urls", [])),
-            "total": data.get("undetected_communicating_percent", 0) + len(data.get("detected_urls", [])),
+            "total": data.get("undetected_communicating_percent", 0)
+            + len(data.get("detected_urls", [])),
             "country": data.get("country"),
             "as_owner": data.get("as_owner"),
             "responses": data.get("detected_urls", [])[:5],  # Top 5
@@ -199,7 +199,9 @@ class VirusTotalSource:
         return {
             "source": "virustotal",
             "detected": data.get("positives", 0) > 0,
-            "detection_rate": data.get("positives", 0) / data.get("total", 1) if data.get("total") else 0,
+            "detection_rate": (
+                data.get("positives", 0) / data.get("total", 1) if data.get("total") else 0
+            ),
             "positives": data.get("positives", 0),
             "total": data.get("total", 0),
             "scan_date": data.get("scan_date"),

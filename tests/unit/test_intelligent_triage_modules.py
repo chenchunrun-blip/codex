@@ -25,7 +25,6 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pytest
-
 from shared.clustering import AlertClusteringEngine, compute_structural_similarity
 from shared.correlation import CorrelationEngine
 from shared.deduplication import AlertDeduplicator, compute_fingerprint
@@ -35,6 +34,7 @@ from shared.models.alert import AlertType, SecurityAlert, Severity
 # ---------------------------------------------------------------------------
 # Test data: simulated multi-stage attack
 # ---------------------------------------------------------------------------
+
 
 def _ts(minutes_ago: int) -> str:
     return (datetime.utcnow() - timedelta(minutes=minutes_ago)).isoformat()
@@ -95,6 +95,7 @@ def _alert_to_dict(alert: SecurityAlert) -> dict:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestDeduplicationPipeline:
     """Dedup correctly filters duplicate alerts in the attack chain."""

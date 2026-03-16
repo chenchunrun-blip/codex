@@ -29,22 +29,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-
 from routes import alerts as alerts_router
 from routes import analytics as analytics_router
-from routes.threat_intel import router as threat_intel_router
-from routes.workflows import router as workflows_router
 from routes.automation import router as automation_router
-from routes.reports import router as reports_router
-from routes.users import router as users_router
 from routes.config import router as config_router
-
+from routes.reports import router as reports_router
+from routes.threat_intel import router as threat_intel_router
+from routes.users import router as users_router
+from routes.workflows import router as workflows_router
 from shared.database.base import get_database_manager, init_database
-
 
 # =============================================================================
 # Lifespan Management
 # =============================================================================
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
@@ -75,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Shutdown
     logger.info("Shutting down API Gateway")
     from shared.database.base import close_database
+
     await close_database()
 
 
@@ -124,6 +123,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # =============================================================================
 # Exception Handlers
 # =============================================================================
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -218,6 +218,7 @@ app.include_router(
 # Health Check Endpoints
 # =============================================================================
 
+
 @app.get("/", tags=["Health"])
 async def root():
     """Root endpoint with API information."""
@@ -293,6 +294,7 @@ async def readiness_probe():
 # =============================================================================
 # Startup Event
 # =============================================================================
+
 
 @app.on_event("startup")
 async def startup_event():

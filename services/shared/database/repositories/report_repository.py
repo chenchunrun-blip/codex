@@ -82,9 +82,7 @@ class ReportRepository(BaseRepository[Report]):
         Returns:
             Report instance or None
         """
-        result = await self.session.execute(
-            select(Report).where(Report.report_id == report_id)
-        )
+        result = await self.session.execute(select(Report).where(Report.report_id == report_id))
         return result.scalar_one_or_none()
 
     async def update_status(
@@ -179,9 +177,7 @@ class ReportRepository(BaseRepository[Report]):
 
         return reports, total
 
-    async def get_scheduled_reports(
-        self, frequency: Optional[str] = None
-    ) -> List[Report]:
+    async def get_scheduled_reports(self, frequency: Optional[str] = None) -> List[Report]:
         """
         Get reports that have a schedule configured.
 
@@ -238,8 +234,6 @@ class ReportRepository(BaseRepository[Report]):
             Dictionary mapping report_type to count
         """
         result = await self.session.execute(
-            select(Report.report_type, func.count(Report.report_id)).group_by(
-                Report.report_type
-            )
+            select(Report.report_type, func.count(Report.report_id)).group_by(Report.report_type)
         )
         return {rtype: count for rtype, count in result.all()}

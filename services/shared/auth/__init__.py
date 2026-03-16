@@ -29,7 +29,6 @@ from pydantic import BaseModel, EmailStr, Field
 from shared.errors.exceptions import AuthenticationError, AuthorizationError
 from shared.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 
@@ -37,10 +36,13 @@ logger = get_logger(__name__)
 # Configuration
 # =============================================================================
 
+
 class AuthConfig:
     """Authentication configuration."""
 
-    SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("ENCRYPTION_KEY", "dev-secret-key-change-me"))
+    SECRET_KEY = os.getenv(
+        "JWT_SECRET_KEY", os.getenv("ENCRYPTION_KEY", "dev-secret-key-change-me")
+    )
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
@@ -59,6 +61,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = AuthConfig.REFRESH_TOKEN_EXPIRE_DAYS
 # =============================================================================
 # RBAC Models
 # =============================================================================
+
 
 class UserRole(str, Enum):
     """User roles with hierarchical permissions."""
@@ -105,7 +108,6 @@ class Permission(str, Enum):
 # Role-Permission mapping
 ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
     UserRole.ADMIN: {perm for perm in Permission},  # All permissions
-
     UserRole.SECURITY_ANALYST: {
         Permission.ALERT_VIEW,
         Permission.ALERT_UPDATE,
@@ -117,7 +119,6 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
         Permission.THREAT_INTEL_VIEW,
         Permission.THREAT_INTEL_QUERY,
     },
-
     UserRole.OPERATOR: {
         Permission.ALERT_VIEW,
         Permission.ALERT_CREATE,
@@ -127,14 +128,12 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
         Permission.THREAT_INTEL_VIEW,
         Permission.SYSTEM_MONITORING,
     },
-
     UserRole.VIEWER: {
         Permission.ALERT_VIEW,
         Permission.TRIAGE_VIEW,
         Permission.AUTOMATION_VIEW,
         Permission.THREAT_INTEL_VIEW,
     },
-
     UserRole.AUDITOR: {
         Permission.ALERT_VIEW,
         Permission.TRIAGE_VIEW,
@@ -147,6 +146,7 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
 # Legacy aliases
 class Role(str):
     """Legacy user roles (use UserRole enum instead)."""
+
     ADMIN = "admin"
     ANALYST = "security_analyst"
     VIEWER = "viewer"
@@ -155,6 +155,7 @@ class Role(str):
 # =============================================================================
 # Pydantic Models
 # =============================================================================
+
 
 class TokenPayload(BaseModel):
     """JWT token payload."""
@@ -220,21 +221,21 @@ class RefreshTokenRequest(BaseModel):
 # Password Functions
 # =============================================================================
 
+
 def hash_password(password: str) -> str:
     """Hash a password for storage."""
     import bcrypt
+
     salt = bcrypt.gensalt(rounds=AuthConfig.bcrypt_rounds)
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
     import bcrypt
+
     try:
-        return bcrypt.checkpw(
-            plain_password.encode('utf-8'),
-            hashed_password.encode('utf-8')
-        )
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
         return False
 
@@ -242,6 +243,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # =============================================================================
 # JWT Token Functions
 # =============================================================================
+
 
 def create_access_token(user_or_id, permissions=None, expires_delta=None):
     """
@@ -332,6 +334,7 @@ def verify_token(token: str) -> Dict[str, Any]:
 # Authorization Functions
 # =============================================================================
 
+
 def get_user_permissions(user_role) -> Set[Permission]:
     """Get permissions for a user role."""
     if isinstance(user_role, UserRole):
@@ -369,6 +372,7 @@ def check_permission(required_permission: str, user_permissions: List[str]) -> b
 
 def require_permission(required_permission: str):
     """Legacy decorator to check permission."""
+
     def decorator(func):
         async def wrapper(*args, current_user: Dict[str, Any] = None, **kwargs):
             if not current_user:
@@ -380,13 +384,16 @@ def require_permission(required_permission: str):
                     required_permission=required_permission,
                 )
             return await func(*args, current_user=current_user, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 # =============================================================================
 # Admin User Creation
 # =============================================================================
+
 
 def create_admin_user() -> User:
     """Create initial admin user for first-time setup."""
@@ -411,6 +418,7 @@ def create_admin_user() -> User:
 # =============================================================================
 # Audit Logging
 # =============================================================================
+
 
 class AuditAction(str, Enum):
     """Audit action types."""

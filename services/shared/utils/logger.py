@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 _handlers_configured = False
 _logger = None
 
+
 def get_logger(name: str) -> Any:
     """
     Get logger instance.
@@ -49,8 +50,8 @@ def get_logger(name: str) -> Any:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(logging.INFO)
         console_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         console_handler.setFormatter(console_format)
         _logger.addHandler(console_handler)
@@ -60,15 +61,16 @@ def get_logger(name: str) -> Any:
         try:
             os.makedirs(log_dir, exist_ok=True)
             from logging.handlers import RotatingFileHandler
+
             file_handler = RotatingFileHandler(
                 os.path.join(log_dir, "triage.log"),
-                maxBytes=100*1024*1024,  # 100 MB
-                backupCount=30
+                maxBytes=100 * 1024 * 1024,  # 100 MB
+                backupCount=30,
             )
             file_handler.setLevel(logging.DEBUG)
             file_format = logging.Formatter(
-                '%(asctime)s | %(levelname)s | %(name)s:%(funcName)s:%(lineno)d - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
+                "%(asctime)s | %(levelname)s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
             )
             file_handler.setFormatter(file_format)
             _logger.addHandler(file_handler)

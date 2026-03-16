@@ -19,14 +19,13 @@ This module provides Fernet-based symmetric encryption for API keys and other
 sensitive configuration values.
 """
 
-import os
 import base64
+import os
 from typing import Optional
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
 from shared.utils import get_logger
 
 logger = get_logger(__name__)
@@ -65,7 +64,7 @@ def get_encryption_key() -> bytes:
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
-                salt=b'security_triage_salt',  # In production, use random salt
+                salt=b"security_triage_salt",  # In production, use random salt
                 iterations=100000,
             )
             derived_key = base64.urlsafe_b64encode(kdf.derive(key_bytes))
@@ -92,8 +91,8 @@ def encrypt_value(plaintext: str) -> str:
     try:
         key = get_encryption_key()
         fernet = Fernet(key)
-        encrypted_bytes = fernet.encrypt(plaintext.encode('utf-8'))
-        return encrypted_bytes.decode('utf-8')
+        encrypted_bytes = fernet.encrypt(plaintext.encode("utf-8"))
+        return encrypted_bytes.decode("utf-8")
     except Exception as e:
         logger.error(f"Encryption failed: {e}")
         raise ValueError(f"Failed to encrypt value: {e}") from e
@@ -118,8 +117,8 @@ def decrypt_value(encrypted: str) -> str:
     try:
         key = get_encryption_key()
         fernet = Fernet(key)
-        decrypted_bytes = fernet.decrypt(encrypted.encode('utf-8'))
-        return decrypted_bytes.decode('utf-8')
+        decrypted_bytes = fernet.decrypt(encrypted.encode("utf-8"))
+        return decrypted_bytes.decode("utf-8")
     except Exception as e:
         logger.error(f"Decryption failed: {e}")
         raise ValueError(f"Failed to decrypt value: {e}") from e

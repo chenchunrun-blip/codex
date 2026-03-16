@@ -24,8 +24,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
-
 from shared.utils.logger import get_logger
+
 from .prompts import PromptTemplates
 from .risk_scoring import RiskScoringEngine
 
@@ -129,8 +129,7 @@ class AITriageAgent:
             )
 
             prompt = self.prompt_templates.get_prompt_for_alert_type(
-                alert.get("alert_type", "other"),
-                **context
+                alert.get("alert_type", "other"), **context
             )
 
             # Step 4: Call LLM
@@ -167,7 +166,10 @@ class AITriageAgent:
             return triage_result
 
         except Exception as e:
-            logger.error(f"AI analysis failed for alert {alert.get('alert_id', 'unknown')}: {e}", exc_info=True)
+            logger.error(
+                f"AI analysis failed for alert {alert.get('alert_id', 'unknown')}: {e}",
+                exc_info=True,
+            )
             # Return fallback result
             return self._create_fallback_result(alert, str(e))
 
@@ -297,40 +299,42 @@ class AITriageAgent:
 
     def _get_mock_response(self, prompt: str) -> str:
         """Get mock LLM response for testing."""
-        return json.dumps({
-            "risk_assessment": {
-                "risk_level": "medium",
-                "confidence": 60,
-                "reasoning": "Mock analysis - LLM API not configured. Configure DEEPSEEK_API_KEY or QWEN_API_KEY for real analysis."
-            },
-            "analysis_summary": "This is a mock triage result. Configure LLM API keys for real AI-powered analysis.",
-            "impact_assessment": "Potential impact on systems and data",
-            "recommended_actions": [
-                {
-                    "action": "Investigate the alert",
-                    "priority": "medium",
-                    "type": "investigation",
-                    "urgency": "within_4_hours",
-                    "responsible_team": "SOC"
+        return json.dumps(
+            {
+                "risk_assessment": {
+                    "risk_level": "medium",
+                    "confidence": 60,
+                    "reasoning": "Mock analysis - LLM API not configured. Configure DEEPSEEK_API_KEY or QWEN_API_KEY for real analysis.",
                 },
-                {
-                    "action": "Review affected assets",
-                    "priority": "low",
-                    "type": "investigation",
-                    "urgency": "within_24_hours",
-                    "responsible_team": "IT"
-                }
-            ],
-            "investigation_steps": [
-                "Review alert details and context",
-                "Check related system logs",
-                "Verify with affected users"
-            ],
-            "requires_human_review": True,
-            "escalation_trigger": "Always review mock results",
-            "additional_notes": "Mock response - configure LLM API for production",
-            "_mock": True
-        })
+                "analysis_summary": "This is a mock triage result. Configure LLM API keys for real AI-powered analysis.",
+                "impact_assessment": "Potential impact on systems and data",
+                "recommended_actions": [
+                    {
+                        "action": "Investigate the alert",
+                        "priority": "medium",
+                        "type": "investigation",
+                        "urgency": "within_4_hours",
+                        "responsible_team": "SOC",
+                    },
+                    {
+                        "action": "Review affected assets",
+                        "priority": "low",
+                        "type": "investigation",
+                        "urgency": "within_24_hours",
+                        "responsible_team": "IT",
+                    },
+                ],
+                "investigation_steps": [
+                    "Review alert details and context",
+                    "Check related system logs",
+                    "Verify with affected users",
+                ],
+                "requires_human_review": True,
+                "escalation_trigger": "Always review mock results",
+                "additional_notes": "Mock response - configure LLM API for production",
+                "_mock": True,
+            }
+        )
 
     def _parse_llm_response(self, response: str) -> Dict[str, Any]:
         """Parse LLM JSON response."""
@@ -344,7 +348,7 @@ class AITriageAgent:
             end = response.rfind("}")
 
             if start != -1 and end != -1:
-                json_str = response[start:end+1]
+                json_str = response[start : end + 1]
                 return json.loads(json_str)
             else:
                 # Return error structure
@@ -377,11 +381,17 @@ class AITriageAgent:
             "risk_level": risk_assessment["risk_level"],
             "confidence": risk_assessment["confidence"],
             "requires_human_review": risk_assessment["requires_human_review"],
-            "analysis": ai_analysis.get("analysis_summary", ai_analysis.get("risk_assessment", {}).get("reasoning", "")),
+            "analysis": ai_analysis.get(
+                "analysis_summary", ai_analysis.get("risk_assessment", {}).get("reasoning", "")
+            ),
             "key_findings": key_findings,
             "iocs_identified": iocs,
             "threat_intel_summary": self._create_threat_intel_summary(contexts["threat_intel"]),
-            "threat_intel_sources": contexts["threat_intel"].get("queried_sources", []) if contexts["threat_intel"] else [],
+            "threat_intel_sources": (
+                contexts["threat_intel"].get("queried_sources", [])
+                if contexts["threat_intel"]
+                else []
+            ),
             "known_exploits": self._check_known_exploits(contexts["threat_intel"]),
             "cve_references": self._extract_cves(ai_analysis),
             "remediation": remediation,
@@ -493,10 +503,7 @@ class AITriageAgent:
         # Check tags for exploit-related keywords
         tags = threat_intel.get("tags", [])
         exploit_keywords = ["exploit", "cve", "kit", "payload"]
-        return any(
-            any(keyword in tag.lower() for keyword in exploit_keywords)
-            for tag in tags
-        )
+        return any(any(keyword in tag.lower() for keyword in exploit_keywords) for tag in tags)
 
     def _extract_cves(self, ai_analysis: Dict) -> List[str]:
         """Extract CVE references from analysis."""
@@ -510,6 +517,7 @@ class AITriageAgent:
                     if isinstance(value, str):
                         # Look for CVE pattern
                         import re
+
                         cve_pattern = r"CVE-\d{4}-\d{4,7}"
                         matches = re.findall(cve_pattern, value, re.IGNORECASE)
                         cves.extend(matches)

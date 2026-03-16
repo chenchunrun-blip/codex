@@ -39,6 +39,7 @@ logger = get_logger(__name__)
 # Attack lifecycle stages (based on MITRE ATT&CK / Lockheed Kill Chain)
 # ---------------------------------------------------------------------------
 
+
 class AttackStage(str, Enum):
     RECONNAISSANCE = "reconnaissance"
     INITIAL_ACCESS = "initial_access"
@@ -84,6 +85,7 @@ RELATED_TYPE_PAIRS: List[Tuple[str, str]] = [
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 class AttackChain:
     """A detected multi-stage attack chain."""
 
@@ -117,6 +119,7 @@ class AttackChain:
 # ---------------------------------------------------------------------------
 # Core engine
 # ---------------------------------------------------------------------------
+
 
 class CorrelationEngine:
     """
@@ -166,7 +169,12 @@ class CorrelationEngine:
         chain = _match_chain(
             staged,
             "malware_persistence",
-            [AttackStage.INITIAL_ACCESS, AttackStage.EXECUTION, AttackStage.PERSISTENCE, AttackStage.PRIVILEGE_ESCALATION],
+            [
+                AttackStage.INITIAL_ACCESS,
+                AttackStage.EXECUTION,
+                AttackStage.PERSISTENCE,
+                AttackStage.PRIVILEGE_ESCALATION,
+            ],
         )
         if chain:
             chains.append(chain)
@@ -208,8 +216,14 @@ class CorrelationEngine:
         all_alerts = [current_alert] + recent_alerts
         all_alerts.sort(key=lambda a: a.get("timestamp", ""))
 
-        root_cause_types = {"phishing", "malware", "brute_force", "credential_theft",
-                            "unauthorized_access", "vulnerability"}
+        root_cause_types = {
+            "phishing",
+            "malware",
+            "brute_force",
+            "credential_theft",
+            "unauthorized_access",
+            "vulnerability",
+        }
 
         for alert in all_alerts:
             sev = alert.get("severity", "low").lower()
@@ -325,7 +339,9 @@ class CorrelationEngine:
 
         return {
             "alert_id": current_alert.get("alert_id"),
-            "attack_chains": [c.to_dict() for c in cls.detect_attack_chains(current_alert, recent_alerts)],
+            "attack_chains": [
+                c.to_dict() for c in cls.detect_attack_chains(current_alert, recent_alerts)
+            ],
             "root_cause": cls.find_root_cause(current_alert, recent_alerts),
             "threat_actor_profile": cls.profile_threat_actor(all_alerts),
             "impact_analysis": cls.analyze_impact(all_alerts),
@@ -336,6 +352,7 @@ class CorrelationEngine:
 # ---------------------------------------------------------------------------
 # Helpers (module-private)
 # ---------------------------------------------------------------------------
+
 
 def _match_chain(
     staged: List[Tuple[AttackStage, Dict[str, Any]]],
@@ -402,7 +419,10 @@ def _suggest_remediation(alert_type: str) -> List[str]:
             "Enable enhanced logging on affected systems",
         ],
     }
-    return remediation_map.get(alert_type, [
-        "Investigate the alert and gather additional context",
-        "Notify the security operations team",
-    ])
+    return remediation_map.get(
+        alert_type,
+        [
+            "Investigate the alert and gather additional context",
+            "Notify the security operations team",
+        ],
+    )

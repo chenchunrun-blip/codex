@@ -32,30 +32,24 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-
 # ---------------------------------------------------------------------------
 # Configuration (from environment variables)
 # ---------------------------------------------------------------------------
 
 # Maximum number of requests allowed per window
-RATE_LIMIT_MAX_REQUESTS: int = int(
-    os.getenv("RATE_LIMIT_MAX_REQUESTS", "100")
-)
+RATE_LIMIT_MAX_REQUESTS: int = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "100"))
 
 # Time window in seconds (default 60s = 1 minute)
-RATE_LIMIT_WINDOW_SECONDS: int = int(
-    os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
-)
+RATE_LIMIT_WINDOW_SECONDS: int = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # How often (in seconds) the background cleanup runs
-_CLEANUP_INTERVAL_SECONDS: int = int(
-    os.getenv("RATE_LIMIT_CLEANUP_INTERVAL", "120")
-)
+_CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("RATE_LIMIT_CLEANUP_INTERVAL", "120"))
 
 
 # ---------------------------------------------------------------------------
 # Token Bucket
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class TokenBucket:
@@ -120,6 +114,7 @@ class TokenBucket:
 # In-memory Bucket Store
 # ---------------------------------------------------------------------------
 
+
 class BucketStore:
     """
     Thread-safe in-memory store for per-client token buckets.
@@ -173,22 +168,19 @@ class BucketStore:
 
         self._last_cleanup = now
         stale_keys = [
-            key
-            for key, bucket in self._buckets.items()
-            if now - bucket.last_refill > self._ttl
+            key for key, bucket in self._buckets.items() if now - bucket.last_refill > self._ttl
         ]
         for key in stale_keys:
             del self._buckets[key]
 
         if stale_keys:
-            logger.debug(
-                f"Rate limiter cleanup: removed {len(stale_keys)} stale buckets"
-            )
+            logger.debug(f"Rate limiter cleanup: removed {len(stale_keys)} stale buckets")
 
 
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
@@ -211,9 +203,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             cleanup_interval=_CLEANUP_INTERVAL_SECONDS,
         )
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """
         Check rate limit for the incoming request.
 

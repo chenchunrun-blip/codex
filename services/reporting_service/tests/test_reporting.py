@@ -27,12 +27,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from storage import ReportStorage
 
 from main import (
+    TEMPLATE_MAP,
     ReportFormat,
     ReportStatus,
     ReportType,
-    TEMPLATE_MAP,
     _format_csv,
     _format_html,
     _format_pdf,
@@ -43,8 +44,6 @@ from main import (
     app,
     jinja_env,
 )
-from storage import ReportStorage
-
 
 # =============================================================================
 # Fixtures
@@ -199,6 +198,7 @@ class TestJinja2Templates:
     def test_template_dir_exists(self):
         """Test that template directory exists."""
         from main import TEMPLATE_DIR
+
         assert TEMPLATE_DIR.exists()
 
     def test_all_templates_load(self):
@@ -380,29 +380,34 @@ class TestPDFFormatter:
 
     def test_format_pdf_empty_data(self):
         """Test PDF generation with minimal data."""
-        result = _format_pdf({
-            "report_id": "r1",
-            "report_type": "custom",
-            "generated_at": "2026-01-01",
-        })
+        result = _format_pdf(
+            {
+                "report_id": "r1",
+                "report_type": "custom",
+                "generated_at": "2026-01-01",
+            }
+        )
 
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_format_pdf_no_libraries_returns_html_bytes(self, sample_report_data):
         """Test PDF falls back to HTML bytes when no PDF library available."""
-        with patch.dict("sys.modules", {
-            "weasyprint": None,
-            "xhtml2pdf": None,
-            "xhtml2pdf.pisa": None,
-            "reportlab": None,
-            "reportlab.lib": None,
-            "reportlab.lib.pagesizes": None,
-            "reportlab.lib.styles": None,
-            "reportlab.lib.units": None,
-            "reportlab.lib.colors": None,
-            "reportlab.platypus": None,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "weasyprint": None,
+                "xhtml2pdf": None,
+                "xhtml2pdf.pisa": None,
+                "reportlab": None,
+                "reportlab.lib": None,
+                "reportlab.lib.pagesizes": None,
+                "reportlab.lib.styles": None,
+                "reportlab.lib.units": None,
+                "reportlab.lib.colors": None,
+                "reportlab.platypus": None,
+            },
+        ):
             result = _format_pdf(sample_report_data)
 
         assert isinstance(result, bytes)
@@ -546,8 +551,7 @@ class TestReportDataGeneration:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.AlertRepository") as MockAlertRepo:
+        with patch("main.db_manager", mock_db), patch("main.AlertRepository") as MockAlertRepo:
             mock_repo = MockAlertRepo.return_value
             mock_repo.get_alerts_count_by_severity = AsyncMock(
                 return_value={"critical": 2, "high": 5}
@@ -560,8 +564,10 @@ class TestReportDataGeneration:
             )
 
             data = await _generate_summary_data(
-                "test-id", "daily_summary",
-                datetime(2026, 3, 15), datetime(2026, 3, 15, 23, 59),
+                "test-id",
+                "daily_summary",
+                datetime(2026, 3, 15),
+                datetime(2026, 3, 15, 23, 59),
             )
 
         assert data["summary"]["total_alerts"] == 7
@@ -597,8 +603,7 @@ class TestReportDataGeneration:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.AlertRepository") as MockAlertRepo:
+        with patch("main.db_manager", mock_db), patch("main.AlertRepository") as MockAlertRepo:
             mock_repo = MockAlertRepo.return_value
             mock_repo.get_alert_by_id = AsyncMock(return_value=mock_alert)
 
@@ -615,8 +620,7 @@ class TestReportDataGeneration:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.AlertRepository") as MockAlertRepo:
+        with patch("main.db_manager", mock_db), patch("main.AlertRepository") as MockAlertRepo:
             mock_repo = MockAlertRepo.return_value
             mock_repo.get_alert_by_id = AsyncMock(return_value=None)
 
@@ -647,9 +651,11 @@ class TestHealthEndpoint:
 
     def test_health_check_no_db(self, test_client):
         """Test health check when DB is unavailable."""
-        with patch("main.db_manager", None), \
-             patch("main.publisher", None), \
-             patch("main.report_storage", None):
+        with (
+            patch("main.db_manager", None),
+            patch("main.publisher", None),
+            patch("main.report_storage", None),
+        ):
             response = test_client.get("/health")
 
         assert response.status_code == 200
@@ -669,10 +675,12 @@ class TestHealthEndpoint:
         mock_storage = MagicMock()
         mock_storage.is_minio_available = True
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.publisher", MagicMock()), \
-             patch("main.report_storage", mock_storage), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.publisher", MagicMock()),
+            patch("main.report_storage", mock_storage),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.count_by_status = AsyncMock(return_value={"completed": 5, "pending": 2})
 
@@ -695,10 +703,12 @@ class TestHealthEndpoint:
         mock_storage = MagicMock()
         mock_storage.is_minio_available = False
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.publisher", None), \
-             patch("main.report_storage", mock_storage), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.publisher", None),
+            patch("main.report_storage", mock_storage),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.count_by_status = AsyncMock(return_value={})
 
@@ -718,8 +728,7 @@ class TestGenerateReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.create_report = AsyncMock()
 
@@ -746,8 +755,7 @@ class TestGenerateReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.create_report = AsyncMock()
 
@@ -781,8 +789,7 @@ class TestGenerateReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.create_report = AsyncMock()
 
@@ -806,9 +813,14 @@ class TestGenerateReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        for rt in ["daily_summary", "weekly_summary", "monthly_summary", "trend_analysis", "custom"]:
-            with patch("main.db_manager", mock_db), \
-                 patch("main.ReportRepository") as MockRepo:
+        for rt in [
+            "daily_summary",
+            "weekly_summary",
+            "monthly_summary",
+            "trend_analysis",
+            "custom",
+        ]:
+            with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.create_report = AsyncMock()
 
@@ -826,8 +838,7 @@ class TestGenerateReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         for fmt in ["json", "html", "csv", "pdf"]:
-            with patch("main.db_manager", mock_db), \
-                 patch("main.ReportRepository") as MockRepo:
+            with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.create_report = AsyncMock()
 
@@ -849,9 +860,11 @@ class TestGetReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
@@ -873,11 +886,15 @@ class TestGetReportEndpoint:
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         mock_storage = MagicMock()
-        mock_storage.get_presigned_url.return_value = "https://minio.local/reports/report-test-001.json?sig=abc"
+        mock_storage.get_presigned_url.return_value = (
+            "https://minio.local/reports/report-test-001.json?sig=abc"
+        )
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", mock_storage), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", mock_storage),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
@@ -894,8 +911,7 @@ class TestGetReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=None)
 
@@ -921,15 +937,15 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
-            response = test_client.get(
-                "/api/v1/reports/report-test-001/download?format=json"
-            )
+            response = test_client.get("/api/v1/reports/report-test-001/download?format=json")
 
         assert response.status_code == 200
         assert "application/json" in response.headers["content-type"]
@@ -941,15 +957,15 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
-            response = test_client.get(
-                "/api/v1/reports/report-test-001/download?format=html"
-            )
+            response = test_client.get("/api/v1/reports/report-test-001/download?format=html")
 
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
@@ -962,15 +978,15 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
-            response = test_client.get(
-                "/api/v1/reports/report-test-001/download?format=csv"
-            )
+            response = test_client.get("/api/v1/reports/report-test-001/download?format=csv")
 
         assert response.status_code == 200
         assert "text/csv" in response.headers["content-type"]
@@ -982,15 +998,15 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
-            response = test_client.get(
-                "/api/v1/reports/report-test-001/download?format=pdf"
-            )
+            response = test_client.get("/api/v1/reports/report-test-001/download?format=pdf")
 
         assert response.status_code == 200
         assert "application/pdf" in response.headers["content-type"]
@@ -1007,9 +1023,11 @@ class TestDownloadReportEndpoint:
         mock_storage = MagicMock()
         mock_storage.download_report.return_value = b'{"test": true}'
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", mock_storage), \
-             patch("main.ReportRepository") as MockRepo:
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", mock_storage),
+            patch("main.ReportRepository") as MockRepo,
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
@@ -1025,14 +1043,11 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_pending_report)
 
-            response = test_client.get(
-                "/api/v1/reports/report-pending-001/download"
-            )
+            response = test_client.get("/api/v1/reports/report-pending-001/download")
 
         assert response.status_code == 400
         assert "not ready" in response.json()["detail"]
@@ -1044,8 +1059,7 @@ class TestDownloadReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=None)
 
@@ -1064,8 +1078,7 @@ class TestListReportsEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.list_reports = AsyncMock(return_value=([mock_report], 1))
 
@@ -1084,8 +1097,7 @@ class TestListReportsEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.list_reports = AsyncMock(return_value=([mock_report], 1))
 
@@ -1115,10 +1127,12 @@ class TestDeleteReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", None), \
-             patch("main.ReportRepository") as MockRepo, \
-             patch("main.audit_log", new_callable=AsyncMock):
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", None),
+            patch("main.ReportRepository") as MockRepo,
+            patch("main.audit_log", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
             mock_repo.delete_report = AsyncMock(return_value=True)
@@ -1141,10 +1155,12 @@ class TestDeleteReportEndpoint:
         mock_storage = MagicMock()
         mock_storage.delete_report.return_value = True
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.report_storage", mock_storage), \
-             patch("main.ReportRepository") as MockRepo, \
-             patch("main.audit_log", new_callable=AsyncMock):
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.report_storage", mock_storage),
+            patch("main.ReportRepository") as MockRepo,
+            patch("main.audit_log", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
             mock_repo.delete_report = AsyncMock(return_value=True)
@@ -1161,8 +1177,7 @@ class TestDeleteReportEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=None)
 
@@ -1181,8 +1196,7 @@ class TestReportStatsEndpoint:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.count_by_status = AsyncMock(
                 return_value={"completed": 10, "failed": 2, "pending": 1}
@@ -1210,9 +1224,11 @@ class TestScheduleEndpoints:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo, \
-             patch("main.audit_log", new_callable=AsyncMock):
+        with (
+            patch("main.db_manager", mock_db),
+            patch("main.ReportRepository") as MockRepo,
+            patch("main.audit_log", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
             mock_repo.get_by_report_id = AsyncMock(return_value=mock_report)
 
@@ -1246,8 +1262,7 @@ class TestScheduleEndpoints:
         mock_db.get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_db.get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("main.db_manager", mock_db), \
-             patch("main.ReportRepository") as MockRepo:
+        with patch("main.db_manager", mock_db), patch("main.ReportRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_scheduled_reports = AsyncMock(return_value=[mock_report])
 

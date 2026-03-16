@@ -25,19 +25,23 @@ import random
 from datetime import datetime
 from typing import Dict
 
+from ai_triage_agent.agent import AITriageAgent
+from alert_normalizer.processors import CEFProcessor, QRadarProcessor, SplunkProcessor
+from context_collector.collectors import AssetCollector, NetworkCollector, UserCollector
 from locust import HttpUser, between, task
 from locust.runners import MasterRunner
-
-from alert_normalizer.processors import SplunkProcessor, QRadarProcessor, CEFProcessor
-from context_collector.collectors import AssetCollector, NetworkCollector, UserCollector
-from threat_intel_aggregator.sources import ThreatIntelAggregator, VirusTotalSource, OTXSource, AbuseCHSource
-from ai_triage_agent.agent import AITriageAgent
 from shared.models.alert import AlertType, Severity
-
+from threat_intel_aggregator.sources import (
+    AbuseCHSource,
+    OTXSource,
+    ThreatIntelAggregator,
+    VirusTotalSource,
+)
 
 # =============================================================================
 # Test Data Generators
 # =============================================================================
+
 
 class TestDataGenerator:
     """Generate realistic test data for load testing."""
@@ -114,6 +118,7 @@ class TestDataGenerator:
 # =============================================================================
 # Performance Test User
 # =============================================================================
+
 
 class SecurityTriageUser(HttpUser):
     """
@@ -302,6 +307,7 @@ class SecurityTriageUser(HttpUser):
 # Performance Test User - Full Pipeline
 # =============================================================================
 
+
 class FullPipelineUser(HttpUser):
     """
     Tests the complete alert processing pipeline from ingestion to triage.
@@ -345,9 +351,7 @@ class FullPipelineUser(HttpUser):
 
             # Stage 3: AI Triage
             stage3_start = datetime.utcnow()
-            triage_result = asyncio.run(
-                self.ai_agent.analyze_alert(alert=normalized.model_dump())
-            )
+            triage_result = asyncio.run(self.ai_agent.analyze_alert(alert=normalized.model_dump()))
             stage3_time = (datetime.utcnow() - stage3_start).total_seconds()
 
             # Total time
@@ -412,6 +416,7 @@ class FullPipelineUser(HttpUser):
 # Stress Test User
 # =============================================================================
 
+
 class StressTestUser(HttpUser):
     """
     High-intensity stress test user.
@@ -439,9 +444,7 @@ class StressTestUser(HttpUser):
             normalized = self.splunk_processor.process(raw_alert)
 
             # Quick AI analysis
-            result = asyncio.run(
-                self.ai_agent.analyze_alert(alert=normalized.model_dump())
-            )
+            result = asyncio.run(self.ai_agent.analyze_alert(alert=normalized.model_dump()))
 
             processing_time = (datetime.utcnow() - start).total_seconds()
 
@@ -466,6 +469,7 @@ class StressTestUser(HttpUser):
 # =============================================================================
 # Configuration
 # =============================================================================
+
 
 class TestConfig:
     """Performance test configuration."""

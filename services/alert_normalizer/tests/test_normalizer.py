@@ -18,11 +18,12 @@ Unit tests for Alert Normalizer processors.
 Tests the normalization of alerts from different SIEM formats.
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
 from shared.models.alert import AlertType, Severity
-from services.alert_normalizer.processors import SplunkProcessor, QRadarProcessor, CEFProcessor
+
+from services.alert_normalizer.processors import CEFProcessor, QRadarProcessor, SplunkProcessor
 
 
 class TestSplunkProcessor:
@@ -90,7 +91,9 @@ class TestSplunkProcessor:
 
         assert "45.33.32.156" in iocs.get("ip_addresses", [])
         assert "10.0.0.50" in iocs.get("ip_addresses", [])
-        assert "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8" in iocs.get("file_hashes", [])
+        assert "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8" in iocs.get(
+            "file_hashes", []
+        )
 
     def test_timestamp_parsing(self, processor):
         """Test various timestamp formats."""
@@ -283,11 +286,13 @@ class TestProcessorStats:
         processor = QRadarProcessor()
 
         for i in range(3):
-            processor.process({
-                "description": f"Test {i}",
-                "offense_id": i,
-                "severity": 5,
-            })
+            processor.process(
+                {
+                    "description": f"Test {i}",
+                    "offense_id": i,
+                    "severity": 5,
+                }
+            )
 
         stats = processor.get_stats()
         assert stats["processed_count"] == 3

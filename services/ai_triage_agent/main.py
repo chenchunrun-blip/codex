@@ -34,12 +34,12 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
 from shared.utils.prometheus import setup_prometheus
+from sqlalchemy import text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -351,7 +351,9 @@ def build_triage_prompt(
                 for i, similar_alert in enumerate(results[:5], 1):  # Top 5
                     similarity = similar_alert.get("similarity_score", 0)
                     risk = similar_alert.get("risk_level", "unknown")
-                    prompt_parts.append(f"{i}. Alert ID: {similar_alert.get('alert_id', 'unknown')} (similarity: {similarity:.2%}, risk: {risk})")
+                    prompt_parts.append(
+                        f"{i}. Alert ID: {similar_alert.get('alert_id', 'unknown')} (similarity: {similarity:.2%}, risk: {risk})"
+                    )
                     if similar_alert.get("alert_data", {}).get("description"):
                         desc = similar_alert["alert_data"]["description"]
                         prompt_parts.append(f"   Description: {desc[:100]}...")
@@ -629,7 +631,9 @@ async def triage_alert(
         similar_alerts = await query_similar_alerts(alert, top_k=3)
         if similar_alerts.get("results"):
             enrichment["similar_alerts"] = similar_alerts
-            logger.info(f"Found {len(similar_alerts['results'])} similar alerts for {alert.alert_id}")
+            logger.info(
+                f"Found {len(similar_alerts['results'])} similar alerts for {alert.alert_id}"
+            )
 
         # Get routing decision from LLM Router
         route_decision = await get_llm_route_from_router("triage", complexity)
@@ -638,7 +642,9 @@ async def triage_alert(
         system_prompt = get_system_prompt(alert.alert_type)
         user_prompt = build_triage_prompt(alert, enrichment)
 
-        logger.info(f"Triaging alert {alert.alert_id} with model {route_decision.get('model', 'unknown')} (alert_type: {alert.alert_type}, complexity: {complexity})")
+        logger.info(
+            f"Triaging alert {alert.alert_id} with model {route_decision.get('model', 'unknown')} (alert_type: {alert.alert_type}, complexity: {complexity})"
+        )
 
         # Call LLM API
         llm_response = await call_llm_api(
@@ -667,7 +673,9 @@ async def triage_alert(
             }
         )
 
-        logger.info(f"Alert triaged successfully: {alert.alert_id} (risk_level: {triage_result.get('risk_level')}, confidence: {triage_result.get('confidence')}, processing_time: {processing_time}s)")
+        logger.info(
+            f"Alert triaged successfully: {alert.alert_id} (risk_level: {triage_result.get('risk_level')}, confidence: {triage_result.get('confidence')}, processing_time: {processing_time}s)"
+        )
 
         return triage_result
 
@@ -736,7 +744,9 @@ async def query_similar_alerts(
             if result.get("success"):
                 return result.get("data", {})
 
-        logger.warning(f"Similarity search failed for alert {alert.alert_id}: {response.status_code}")
+        logger.warning(
+            f"Similarity search failed for alert {alert.alert_id}: {response.status_code}"
+        )
         return {}
 
     except Exception as e:
@@ -873,7 +883,7 @@ async def persist_triage_result_to_db(alert_id: str, triage_result: Dict[str, An
                     "analysis_result": triage_result.get("analysis", "No analysis provided"),
                     "recommended_actions": json.dumps(triage_result.get("recommended_actions", [])),
                     "requires_human_review": triage_result.get("requires_human_review", False),
-                }
+                },
             )
             await session.commit()
             logger.debug(f"Triage result persisted for alert {alert_id}")
@@ -934,7 +944,9 @@ async def consume_alerts():
             # Publish result
             await publisher.publish("alert.result", result_message)
 
-            logger.info(f"Alert triage completed (message_id: {message_id}, alert_id: {alert.alert_id}, risk_level: {triage_result.get('risk_level')}, processing_time: {triage_result.get('processing_time_seconds')}s)")
+            logger.info(
+                f"Alert triage completed (message_id: {message_id}, alert_id: {alert.alert_id}, risk_level: {triage_result.get('risk_level')}, processing_time: {triage_result.get('processing_time_seconds')}s)"
+            )
 
         except Exception as e:
             logger.error(f"Triage processing failed: {e}", exc_info=True)

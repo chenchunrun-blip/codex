@@ -15,22 +15,26 @@
 """Unit tests for the AlertClusteringEngine module."""
 
 import pytest
-
 from shared.clustering import (
     AlertCluster,
     AlertClusteringEngine,
     compute_structural_similarity,
 )
 
-
 # ---------------------------------------------------------------------------
 # Structural similarity
 # ---------------------------------------------------------------------------
 
+
 class TestComputeStructuralSimilarity:
     def test_identical_alerts(self):
-        a = {"alert_type": "malware", "source_ip": "10.0.0.1", "target_ip": "10.0.0.2",
-             "asset_id": "srv-01", "file_hash": "abc123"}
+        a = {
+            "alert_type": "malware",
+            "source_ip": "10.0.0.1",
+            "target_ip": "10.0.0.2",
+            "asset_id": "srv-01",
+            "file_hash": "abc123",
+        }
         score = compute_structural_similarity(a, a)
         assert score == pytest.approx(1.0)
 
@@ -59,6 +63,7 @@ class TestComputeStructuralSimilarity:
 # ---------------------------------------------------------------------------
 # AlertCluster
 # ---------------------------------------------------------------------------
+
 
 class TestAlertCluster:
     def test_alert_count(self):
@@ -89,6 +94,7 @@ class TestAlertCluster:
 # AlertClusteringEngine
 # ---------------------------------------------------------------------------
 
+
 class TestAlertClusteringEngine:
     @pytest.fixture
     def engine(self):
@@ -100,11 +106,19 @@ class TestAlertClusteringEngine:
         assert result is None
 
     def test_creates_cluster_when_similar(self, engine):
-        alert = {"alert_id": "a1", "alert_type": "malware", "source_ip": "10.0.0.1",
-                 "asset_id": "srv-01"}
+        alert = {
+            "alert_id": "a1",
+            "alert_type": "malware",
+            "source_ip": "10.0.0.1",
+            "asset_id": "srv-01",
+        }
         candidates = [
-            {"alert_id": "a2", "alert_type": "malware", "source_ip": "10.0.0.1",
-             "asset_id": "srv-01"},
+            {
+                "alert_id": "a2",
+                "alert_type": "malware",
+                "source_ip": "10.0.0.1",
+                "asset_id": "srv-01",
+            },
         ]
         # High structural similarity (same type + same IP + same asset)
         cluster = engine.find_or_create_cluster(alert, candidates)
@@ -112,11 +126,19 @@ class TestAlertClusteringEngine:
         assert cluster.alert_count == 2
 
     def test_already_clustered_returns_existing(self, engine):
-        alert = {"alert_id": "a1", "alert_type": "malware", "source_ip": "10.0.0.1",
-                 "asset_id": "srv-01"}
+        alert = {
+            "alert_id": "a1",
+            "alert_type": "malware",
+            "source_ip": "10.0.0.1",
+            "asset_id": "srv-01",
+        }
         candidates = [
-            {"alert_id": "a2", "alert_type": "malware", "source_ip": "10.0.0.1",
-             "asset_id": "srv-01"},
+            {
+                "alert_id": "a2",
+                "alert_type": "malware",
+                "source_ip": "10.0.0.1",
+                "asset_id": "srv-01",
+            },
         ]
         c1 = engine.find_or_create_cluster(alert, candidates)
         c2 = engine.find_or_create_cluster(alert, candidates)
@@ -124,20 +146,36 @@ class TestAlertClusteringEngine:
 
     def test_joins_existing_cluster(self, engine):
         # Create a cluster with a1 + a2
-        a1 = {"alert_id": "a1", "alert_type": "malware", "source_ip": "10.0.0.1",
-              "asset_id": "srv-01"}
+        a1 = {
+            "alert_id": "a1",
+            "alert_type": "malware",
+            "source_ip": "10.0.0.1",
+            "asset_id": "srv-01",
+        }
         candidates_1 = [
-            {"alert_id": "a2", "alert_type": "malware", "source_ip": "10.0.0.1",
-             "asset_id": "srv-01"},
+            {
+                "alert_id": "a2",
+                "alert_type": "malware",
+                "source_ip": "10.0.0.1",
+                "asset_id": "srv-01",
+            },
         ]
         engine.find_or_create_cluster(a1, candidates_1)
 
         # New alert a3 similar to a2 should join the existing cluster
-        a3 = {"alert_id": "a3", "alert_type": "malware", "source_ip": "10.0.0.1",
-              "asset_id": "srv-01"}
+        a3 = {
+            "alert_id": "a3",
+            "alert_type": "malware",
+            "source_ip": "10.0.0.1",
+            "asset_id": "srv-01",
+        }
         candidates_3 = [
-            {"alert_id": "a2", "alert_type": "malware", "source_ip": "10.0.0.1",
-             "asset_id": "srv-01"},
+            {
+                "alert_id": "a2",
+                "alert_type": "malware",
+                "source_ip": "10.0.0.1",
+                "asset_id": "srv-01",
+            },
         ]
         cluster = engine.find_or_create_cluster(a3, candidates_3)
         assert cluster is not None
@@ -154,9 +192,7 @@ class TestAlertClusteringEngine:
         assert c1 is None
 
         # With high vector similarity: 0.4*0.30 + 0.6*0.9 = 0.66 → above threshold
-        c2 = engine.find_or_create_cluster(
-            alert, candidates, vector_similarities=[("a2", 0.9)]
-        )
+        c2 = engine.find_or_create_cluster(alert, candidates, vector_similarities=[("a2", 0.9)])
         assert c2 is not None
 
     def test_stats(self, engine):

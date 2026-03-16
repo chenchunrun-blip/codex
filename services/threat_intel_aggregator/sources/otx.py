@@ -19,10 +19,10 @@ Queries AlienVault Open Threat Exchange API for IOC data.
 API Documentation: https://otx.alienvault.com/api
 """
 
-import aiohttp
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+import aiohttp
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)

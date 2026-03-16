@@ -23,12 +23,10 @@ Uses shared.auth.decode_token to validate JWT tokens.
 from typing import Set
 
 from loguru import logger
+from shared.auth import decode_token
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-
-from shared.auth import decode_token
-
 
 # Paths that do not require authentication
 EXCLUDED_PATHS: Set[str] = {
@@ -61,9 +59,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     are passed through without authentication.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """
         Process the request and validate JWT token if required.
 

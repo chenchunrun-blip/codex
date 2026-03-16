@@ -29,7 +29,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -73,9 +72,7 @@ class NetworkCollector:
         """
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self.cache: Dict[str, tuple] = {}  # key: (data, expiry_time)
-        self.internal_networks = [
-            ipaddress.ip_network(net) for net in self.INTERNAL_NETWORKS
-        ]
+        self.internal_networks = [ipaddress.ip_network(net) for net in self.INTERNAL_NETWORKS]
 
     async def collect_context(self, ip: str) -> Dict[str, Any]:
         """
@@ -217,7 +214,9 @@ class NetworkCollector:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"http://ip-api.com/json/{ip}",
-                    params={"fields": "status,country,countryCode,city,lat,lon,timezone,isp,org,as"},
+                    params={
+                        "fields": "status,country,countryCode,city,lat,lon,timezone,isp,org,as"
+                    },
                     timeout=aiohttp.ClientTimeout(total=5),
                 ) as response:
                     if response.status == 200:
@@ -288,7 +287,9 @@ class NetworkCollector:
 
                             return {
                                 "score": abuse_score,
-                                "confidence": min(abuse_score / 100.0, 1.0) if abuse_score > 0 else 0.3,
+                                "confidence": (
+                                    min(abuse_score / 100.0, 1.0) if abuse_score > 0 else 0.3
+                                ),
                                 "categories": [str(c) for c in report.get("reports", [])[:5]],
                                 "reports": report.get("totalReports", 0),
                                 "last_reported": report.get("lastReportedAt"),
@@ -371,31 +372,37 @@ class NetworkCollector:
         reputation = await self._query_reputation(ip)
 
         if reputation.get("score", 0) >= 75:
-            anomalies.append({
-                "type": "high_abuse_score",
-                "severity": "high",
-                "description": f"IP {ip} has abuse confidence score of {reputation['score']}%",
-                "detected_at": datetime.utcnow().isoformat(),
-            })
+            anomalies.append(
+                {
+                    "type": "high_abuse_score",
+                    "severity": "high",
+                    "description": f"IP {ip} has abuse confidence score of {reputation['score']}%",
+                    "detected_at": datetime.utcnow().isoformat(),
+                }
+            )
 
         if reputation.get("reports", 0) > 50:
-            anomalies.append({
-                "type": "frequently_reported",
-                "severity": "medium",
-                "description": f"IP {ip} reported {reputation['reports']} times in the last 90 days",
-                "detected_at": datetime.utcnow().isoformat(),
-            })
+            anomalies.append(
+                {
+                    "type": "frequently_reported",
+                    "severity": "medium",
+                    "description": f"IP {ip} reported {reputation['reports']} times in the last 90 days",
+                    "detected_at": datetime.utcnow().isoformat(),
+                }
+            )
 
         # Check if IP is in a known bad ASN range (Bogon/unallocated)
         try:
             addr = ipaddress.ip_address(ip)
             if addr.is_reserved or addr.is_multicast:
-                anomalies.append({
-                    "type": "reserved_address",
-                    "severity": "low",
-                    "description": f"IP {ip} is a reserved/multicast address",
-                    "detected_at": datetime.utcnow().isoformat(),
-                })
+                anomalies.append(
+                    {
+                        "type": "reserved_address",
+                        "severity": "low",
+                        "description": f"IP {ip} is a reserved/multicast address",
+                        "detected_at": datetime.utcnow().isoformat(),
+                    }
+                )
         except ValueError:
             pass
 
@@ -465,8 +472,7 @@ class NetworkCollector:
             "cache_size": len(self.cache),
             "cache_ttl_seconds": int(self.cache_ttl.total_seconds()),
             "expired_entries": sum(
-                1 for _, expiry in self.cache.values()
-                if datetime.utcnow() >= expiry
+                1 for _, expiry in self.cache.values() if datetime.utcnow() >= expiry
             ),
         }
 

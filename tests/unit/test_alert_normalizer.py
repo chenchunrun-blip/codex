@@ -1,16 +1,16 @@
 """Unit tests for Alert Normalizer service - processors, field mapping, IOC extraction, dedup."""
 
 import re
-import pytest
 from datetime import datetime
 from typing import Dict
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Splunk Processor
 # ---------------------------------------------------------------------------
+
 
 class TestSplunkProcessor:
     """Test Splunk alert processor."""
@@ -18,6 +18,7 @@ class TestSplunkProcessor:
     @pytest.fixture
     def processor(self):
         from services.alert_normalizer.processors import SplunkProcessor
+
         return SplunkProcessor()
 
     def test_process_basic_alert(self, processor):
@@ -192,12 +193,14 @@ class TestSplunkProcessor:
 # QRadar Processor
 # ---------------------------------------------------------------------------
 
+
 class TestQRadarProcessor:
     """Test QRadar alert processor."""
 
     @pytest.fixture
     def processor(self):
         from services.alert_normalizer.processors import QRadarProcessor
+
         return QRadarProcessor()
 
     def test_process_qradar_alert(self, processor):
@@ -222,12 +225,14 @@ class TestQRadarProcessor:
 # CEF Processor
 # ---------------------------------------------------------------------------
 
+
 class TestCEFProcessor:
     """Test CEF alert processor."""
 
     @pytest.fixture
     def processor(self):
         from services.alert_normalizer.processors import CEFProcessor
+
         return CEFProcessor()
 
     def test_process_cef_alert_with_cef_string(self, processor):
@@ -259,6 +264,7 @@ class TestCEFProcessor:
 # ---------------------------------------------------------------------------
 # Normalizer Logic (field mapping, fingerprinting, aggregation)
 # ---------------------------------------------------------------------------
+
 
 class TestFieldMapping:
     """Test field mapping from raw alert to standard format."""
@@ -415,6 +421,7 @@ class TestAlertAggregator:
 # ---------------------------------------------------------------------------
 # IOC Extraction (module-level function)
 # ---------------------------------------------------------------------------
+
 
 class TestIOCExtraction:
     """Test IOC extraction from raw alert data."""

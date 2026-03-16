@@ -11,10 +11,10 @@ This script creates the following tables:
 
 import asyncio
 import os
-from sqlalchemy import select
 
 from shared.database.base import get_database_manager, init_database
 from shared.database.models import SystemConfig, UserPreference, Workflow, WorkflowExecution
+from sqlalchemy import select
 
 
 async def create_tables():
@@ -25,7 +25,9 @@ async def create_tables():
 
     async with db_manager.engine.begin() as conn:
         # Create all tables from Base metadata
-        await conn.run_sync(lambda connection: Base.metadata.create_all(connection, checkfirst=True))
+        await conn.run_sync(
+            lambda connection: Base.metadata.create_all(connection, checkfirst=True)
+        )
 
     print("✓ Tables created successfully")
 
@@ -244,7 +246,9 @@ async def main():
 
     try:
         # Initialize database manager
-        database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/security_triage")
+        database_url = os.getenv(
+            "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/security_triage"
+        )
         await init_database(database_url)
 
         await create_tables()

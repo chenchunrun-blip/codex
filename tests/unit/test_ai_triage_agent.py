@@ -1,16 +1,16 @@
 """Unit tests for AI Triage Agent service - prompts, parsing, routing."""
 
 import json
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # System Prompt Selection
 # ---------------------------------------------------------------------------
+
 
 class TestSystemPrompts:
     """Test system prompt selection by alert type."""
@@ -64,12 +64,15 @@ class TestSystemPrompts:
         for alert_type, prompt in TRIAGE_SYSTEM_PROMPTS.items():
             assert "risk_level" in prompt, f"Prompt for {alert_type} missing risk_level"
             assert "confidence" in prompt, f"Prompt for {alert_type} missing confidence"
-            assert "recommended_actions" in prompt, f"Prompt for {alert_type} missing recommended_actions"
+            assert (
+                "recommended_actions" in prompt
+            ), f"Prompt for {alert_type} missing recommended_actions"
 
 
 # ---------------------------------------------------------------------------
 # Prompt Building
 # ---------------------------------------------------------------------------
+
 
 class TestPromptBuilding:
     """Test triage prompt construction."""
@@ -193,6 +196,7 @@ class TestPromptBuilding:
 # LLM Response Parsing
 # ---------------------------------------------------------------------------
 
+
 class TestLLMResponseParsing:
     """Test LLM response parsing and fallback."""
 
@@ -204,16 +208,22 @@ class TestLLMResponseParsing:
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps({
-                            "risk_level": "high",
-                            "confidence": 85,
-                            "reasoning": "Multiple IOCs detected",
-                            "recommended_actions": [
-                                {"action": "Block IP", "priority": "high", "type": "containment"}
-                            ],
-                            "requires_human_review": True,
-                            "estimated_impact": "Potential data breach",
-                        })
+                        "content": json.dumps(
+                            {
+                                "risk_level": "high",
+                                "confidence": 85,
+                                "reasoning": "Multiple IOCs detected",
+                                "recommended_actions": [
+                                    {
+                                        "action": "Block IP",
+                                        "priority": "high",
+                                        "type": "containment",
+                                    }
+                                ],
+                                "requires_human_review": True,
+                                "estimated_impact": "Potential data breach",
+                            }
+                        )
                     }
                 }
             ]
@@ -234,11 +244,7 @@ class TestLLMResponseParsing:
 
         llm_response = {
             "choices": [
-                {
-                    "message": {
-                        "content": "This is a text analysis without JSON formatting."
-                    }
-                }
+                {"message": {"content": "This is a text analysis without JSON formatting."}}
             ]
         }
 
@@ -258,10 +264,12 @@ class TestLLMResponseParsing:
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps({
-                            "risk_level": "critical",
-                            # Missing: confidence, reasoning, recommended_actions
-                        })
+                        "content": json.dumps(
+                            {
+                                "risk_level": "critical",
+                                # Missing: confidence, reasoning, recommended_actions
+                            }
+                        )
                     }
                 }
             ]
@@ -302,6 +310,7 @@ class TestLLMResponseParsing:
 # Complexity Assessment
 # ---------------------------------------------------------------------------
 
+
 class TestComplexityAssessment:
     """Test how triage_alert determines complexity."""
 
@@ -326,13 +335,39 @@ class TestComplexityAssessment:
         }
 
         # Mock external calls
-        with patch("services.ai_triage_agent.main.query_similar_alerts", new_callable=AsyncMock, return_value={}), \
-             patch("services.ai_triage_agent.main.get_llm_route_from_router", new_callable=AsyncMock) as mock_router, \
-             patch("services.ai_triage_agent.main.call_llm_api", new_callable=AsyncMock) as mock_llm:
+        with (
+            patch(
+                "services.ai_triage_agent.main.query_similar_alerts",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "services.ai_triage_agent.main.get_llm_route_from_router", new_callable=AsyncMock
+            ) as mock_router,
+            patch("services.ai_triage_agent.main.call_llm_api", new_callable=AsyncMock) as mock_llm,
+        ):
 
-            mock_router.return_value = {"model": "deepseek-v3", "provider": "deepseek", "base_url": "http://test", "api_key": "test"}
+            mock_router.return_value = {
+                "model": "deepseek-v3",
+                "provider": "deepseek",
+                "base_url": "http://test",
+                "api_key": "test",
+            }
             mock_llm.return_value = {
-                "choices": [{"message": {"content": json.dumps({"risk_level": "critical", "confidence": 90, "reasoning": "test", "recommended_actions": []})}}]
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "risk_level": "critical",
+                                    "confidence": 90,
+                                    "reasoning": "test",
+                                    "recommended_actions": [],
+                                }
+                            )
+                        }
+                    }
+                ]
             }
 
             result = await triage_alert(alert, enrichment)
@@ -357,13 +392,39 @@ class TestComplexityAssessment:
             "asset": {"criticality": "critical"},
         }
 
-        with patch("services.ai_triage_agent.main.query_similar_alerts", new_callable=AsyncMock, return_value={}), \
-             patch("services.ai_triage_agent.main.get_llm_route_from_router", new_callable=AsyncMock) as mock_router, \
-             patch("services.ai_triage_agent.main.call_llm_api", new_callable=AsyncMock) as mock_llm:
+        with (
+            patch(
+                "services.ai_triage_agent.main.query_similar_alerts",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "services.ai_triage_agent.main.get_llm_route_from_router", new_callable=AsyncMock
+            ) as mock_router,
+            patch("services.ai_triage_agent.main.call_llm_api", new_callable=AsyncMock) as mock_llm,
+        ):
 
-            mock_router.return_value = {"model": "deepseek-v3", "provider": "deepseek", "base_url": "http://test", "api_key": "test"}
+            mock_router.return_value = {
+                "model": "deepseek-v3",
+                "provider": "deepseek",
+                "base_url": "http://test",
+                "api_key": "test",
+            }
             mock_llm.return_value = {
-                "choices": [{"message": {"content": json.dumps({"risk_level": "high", "confidence": 80, "reasoning": "test", "recommended_actions": []})}}]
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "risk_level": "high",
+                                    "confidence": 80,
+                                    "reasoning": "test",
+                                    "recommended_actions": [],
+                                }
+                            )
+                        }
+                    }
+                ]
             }
 
             result = await triage_alert(alert, enrichment)
@@ -373,6 +434,7 @@ class TestComplexityAssessment:
 # ---------------------------------------------------------------------------
 # Error Handling
 # ---------------------------------------------------------------------------
+
 
 class TestTriageErrorHandling:
     """Test error handling in triage flow."""
@@ -390,8 +452,18 @@ class TestTriageErrorHandling:
             description="Error test",
         )
 
-        with patch("services.ai_triage_agent.main.query_similar_alerts", new_callable=AsyncMock, side_effect=Exception("Network error")), \
-             patch("services.ai_triage_agent.main.get_llm_route_from_router", new_callable=AsyncMock, side_effect=Exception("Router down")):
+        with (
+            patch(
+                "services.ai_triage_agent.main.query_similar_alerts",
+                new_callable=AsyncMock,
+                side_effect=Exception("Network error"),
+            ),
+            patch(
+                "services.ai_triage_agent.main.get_llm_route_from_router",
+                new_callable=AsyncMock,
+                side_effect=Exception("Router down"),
+            ),
+        ):
 
             result = await triage_alert(alert, {})
 

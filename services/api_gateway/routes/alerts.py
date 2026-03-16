@@ -24,17 +24,15 @@ from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
 from loguru import logger
-
+from pydantic import BaseModel
 from shared.database.base import get_database_manager
 from shared.database.models import Alert, TriageResult
 from shared.database.repositories.alert_repository import AlertRepository
 from shared.database.repositories.triage_repository import TriageRepository
 from shared.models.alert import AlertFilter, AlertStatus, AlertType, Severity
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.requests import (
     AlertBulkActionRequest,
@@ -50,12 +48,14 @@ from models.responses import (
     PaginatedResponse,
     TriageResultResponse,
 )
+
 router = APIRouter()
 
 
 # =============================================================================
 # Dependencies
 # =============================================================================
+
 
 async def get_db_session() -> AsyncSession:
     """Get database session."""
@@ -67,6 +67,7 @@ async def get_db_session() -> AsyncSession:
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
 
 def alert_to_response(alert: Alert) -> AlertResponse:
     """Convert Alert model to AlertResponse."""
@@ -109,9 +110,7 @@ async def get_alert_with_details(
         Dictionary with alert details
     """
     # Get alert
-    result = await session.execute(
-        select(Alert).where(Alert.alert_id == alert_id)
-    )
+    result = await session.execute(select(Alert).where(Alert.alert_id == alert_id))
     alert = result.scalar_one_or_none()
 
     if not alert:
@@ -137,6 +136,7 @@ async def get_alert_with_details(
 # =============================================================================
 # List Alerts
 # =============================================================================
+
 
 @router.get(
     "",
@@ -216,6 +216,7 @@ async def list_alerts(
 # Get Alert by ID
 # =============================================================================
 
+
 @router.get(
     "/{alert_id}",
     response_model=AlertDetailResponse,
@@ -263,6 +264,7 @@ async def get_alert(
 # =============================================================================
 # Create Alert
 # =============================================================================
+
 
 @router.post(
     "",
@@ -319,6 +321,7 @@ async def create_alert(
 # =============================================================================
 # Update Alert Status
 # =============================================================================
+
 
 @router.patch(
     "/{alert_id}/status",
@@ -380,6 +383,7 @@ async def update_alert_status(
 # Get Alert Statistics
 # =============================================================================
 
+
 @router.get(
     "/stats/summary",
     response_model=AlertStatsResponse,
@@ -428,6 +432,7 @@ async def get_alert_stats(
 # Get High Priority Alerts
 # =============================================================================
 
+
 @router.get(
     "/high-priority",
     response_model=List[AlertResponse],
@@ -457,6 +462,7 @@ async def get_high_priority_alerts(
 # Get Active Alerts
 # =============================================================================
 
+
 @router.get(
     "/active",
     response_model=List[AlertResponse],
@@ -480,6 +486,7 @@ async def get_active_alerts(
 # =============================================================================
 # Bulk Actions
 # =============================================================================
+
 
 @router.post(
     "/bulk",
@@ -524,10 +531,12 @@ async def bulk_action(
                 raise ValueError(f"Unsupported action: {action}")
         except Exception as e:
             failure_count += 1
-            errors.append({
-                "alert_id": alert_id,
-                "error": str(e),
-            })
+            errors.append(
+                {
+                    "alert_id": alert_id,
+                    "error": str(e),
+                }
+            )
 
     logger.info(
         "Bulk action completed",
@@ -551,6 +560,7 @@ async def bulk_action(
 # =============================================================================
 # Get Triage Result
 # =============================================================================
+
 
 @router.get(
     "/{alert_id}/triage",

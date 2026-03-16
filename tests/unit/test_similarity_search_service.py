@@ -1,15 +1,15 @@
 """Unit tests for Similarity Search service - text conversion, clustering integration."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Alert to Text Conversion
 # ---------------------------------------------------------------------------
+
 
 class TestAlertToText:
     """Test converting SecurityAlert to text for embedding."""
@@ -88,6 +88,7 @@ class TestAlertToText:
 # Clustering Engine (shared module, tested via service)
 # ---------------------------------------------------------------------------
 
+
 class TestClusteringEngine:
     """Test AlertClusteringEngine integration."""
 
@@ -156,8 +157,18 @@ class TestClusteringEngine:
 
         engine = AlertClusteringEngine(similarity_threshold=0.5)
 
-        alert1 = {"alert_id": "SAME-A", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
-        alert2 = {"alert_id": "SAME-B", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
+        alert1 = {
+            "alert_id": "SAME-A",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
+        alert2 = {
+            "alert_id": "SAME-B",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
 
         engine.find_or_create_cluster(alert1, [], [])
         cluster = engine.find_or_create_cluster(alert2, [alert1], [("SAME-A", 0.9)])
@@ -173,8 +184,18 @@ class TestClusteringEngine:
 
         engine = AlertClusteringEngine(similarity_threshold=0.65)
 
-        alert1 = {"alert_id": "DIS-X", "alert_type": "malware", "severity": "critical", "source_ip": "1.2.3.4"}
-        alert2 = {"alert_id": "DIS-Y", "alert_type": "phishing", "severity": "low", "source_ip": "9.8.7.6"}
+        alert1 = {
+            "alert_id": "DIS-X",
+            "alert_type": "malware",
+            "severity": "critical",
+            "source_ip": "1.2.3.4",
+        }
+        alert2 = {
+            "alert_id": "DIS-Y",
+            "alert_type": "phishing",
+            "severity": "low",
+            "source_ip": "9.8.7.6",
+        }
 
         engine.find_or_create_cluster(alert1, [], [])
         cluster2 = engine.find_or_create_cluster(alert2, [alert1], [("DIS-X", 0.2)])
@@ -196,8 +217,18 @@ class TestClusteringEngine:
 
         engine = AlertClusteringEngine(similarity_threshold=0.5)
 
-        alert1 = {"alert_id": "STAT-A", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
-        alert2 = {"alert_id": "STAT-B", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
+        alert1 = {
+            "alert_id": "STAT-A",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
+        alert2 = {
+            "alert_id": "STAT-B",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
 
         engine.find_or_create_cluster(alert1, [], [])
         engine.find_or_create_cluster(alert2, [alert1], [("STAT-A", 0.9)])
@@ -214,8 +245,18 @@ class TestClusteringEngine:
         engine = AlertClusteringEngine(similarity_threshold=0.5, cluster_ttl_hours=0)
 
         # Create a cluster by clustering two similar alerts
-        a1 = {"alert_id": "EV-A", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
-        a2 = {"alert_id": "EV-B", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
+        a1 = {
+            "alert_id": "EV-A",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
+        a2 = {
+            "alert_id": "EV-B",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
 
         engine.find_or_create_cluster(a1, [], [])
         engine.find_or_create_cluster(a2, [a1], [("EV-A", 0.9)])
@@ -232,8 +273,18 @@ class TestClusteringEngine:
 
         engine = AlertClusteringEngine(similarity_threshold=0.5)
 
-        a1 = {"alert_id": "GET-A", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
-        a2 = {"alert_id": "GET-B", "alert_type": "malware", "severity": "high", "source_ip": "1.2.3.4"}
+        a1 = {
+            "alert_id": "GET-A",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
+        a2 = {
+            "alert_id": "GET-B",
+            "alert_type": "malware",
+            "severity": "high",
+            "source_ip": "1.2.3.4",
+        }
 
         engine.find_or_create_cluster(a1, [], [])
         engine.find_or_create_cluster(a2, [a1], [("GET-A", 0.9)])

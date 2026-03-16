@@ -106,21 +106,21 @@ class MetricsCollector:
         for name, value in self._counters.items():
             metric_name = f"{prefix}_{name}_total"
             lines.append(f"# TYPE {metric_name} counter")
-            lines.append(f'{metric_name} {value}')
+            lines.append(f"{metric_name} {value}")
 
         for name, value in self._gauges.items():
             metric_name = f"{prefix}_{name}"
             lines.append(f"# TYPE {metric_name} gauge")
-            lines.append(f'{metric_name} {value}')
+            lines.append(f"{metric_name} {value}")
 
         for name, bucket in self._histograms.items():
             if bucket:
                 metric_name = f"{prefix}_{name}"
                 avg = sum(bucket) / len(bucket)
                 lines.append(f"# TYPE {metric_name}_avg gauge")
-                lines.append(f'{metric_name}_avg {avg:.3f}')
+                lines.append(f"{metric_name}_avg {avg:.3f}")
                 lines.append(f"# TYPE {metric_name}_count counter")
-                lines.append(f'{metric_name}_count {len(bucket)}')
+                lines.append(f"{metric_name}_count {len(bucket)}")
 
         return "\n".join(lines) + "\n"
 

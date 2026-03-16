@@ -1,15 +1,15 @@
 """Unit tests for Threat Intel Aggregator service - sources, scoring, aggregation."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # VirusTotal Source
 # ---------------------------------------------------------------------------
+
 
 class TestVirusTotalSource:
     """Test VirusTotal threat intel source."""
@@ -85,6 +85,7 @@ class TestVirusTotalSource:
 # Abuse.ch Source
 # ---------------------------------------------------------------------------
 
+
 class TestAbuseCHSource:
     """Test Abuse.ch threat intel source."""
 
@@ -122,6 +123,7 @@ class TestAbuseCHSource:
 # Internal IOC Source
 # ---------------------------------------------------------------------------
 
+
 class TestInternalIOCSource:
     """Test internal IOC database source."""
 
@@ -145,6 +147,7 @@ class TestInternalIOCSource:
 # ---------------------------------------------------------------------------
 # Custom Threat Feed
 # ---------------------------------------------------------------------------
+
 
 class TestCustomThreatFeed:
     """Test custom internal threat feed."""
@@ -185,6 +188,7 @@ class TestCustomThreatFeed:
 # Threat Score Calculation
 # ---------------------------------------------------------------------------
 
+
 class TestThreatScoreCalculation:
     """Test aggregated threat score calculation."""
 
@@ -207,7 +211,11 @@ class TestThreatScoreCalculation:
     @pytest.mark.asyncio
     async def test_query_threat_intel_with_internal_source(self):
         """Query should aggregate results from enabled sources."""
-        from services.threat_intel_aggregator.main import query_threat_intel, threat_sources, init_threat_sources
+        from services.threat_intel_aggregator.main import (
+            init_threat_sources,
+            query_threat_intel,
+            threat_sources,
+        )
 
         # Initialize sources if empty
         if not threat_sources:
@@ -223,6 +231,7 @@ class TestThreatScoreCalculation:
 # Alert Enrichment with Threat Intel
 # ---------------------------------------------------------------------------
 
+
 class TestThreatIntelEnrichment:
     """Test full alert enrichment flow."""
 
@@ -230,8 +239,8 @@ class TestThreatIntelEnrichment:
     async def test_enrich_alert_with_ip(self):
         from services.threat_intel_aggregator.main import (
             enrich_with_threat_intel,
-            threat_sources,
             init_threat_sources,
+            threat_sources,
         )
 
         if not threat_sources:
@@ -274,6 +283,7 @@ class TestThreatIntelEnrichment:
 # ---------------------------------------------------------------------------
 # Cache Helpers
 # ---------------------------------------------------------------------------
+
 
 class TestCacheHelpers:
     """Test cache check/set helper functions."""

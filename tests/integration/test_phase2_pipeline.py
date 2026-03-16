@@ -27,8 +27,9 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from alert_normalizer.processors import SplunkProcessor, QRadarProcessor, CEFProcessor
+from ai_triage_agent.agent import AITriageAgent
+from ai_triage_agent.risk_scoring import RiskScoringEngine
+from alert_normalizer.processors import CEFProcessor, QRadarProcessor, SplunkProcessor
 from context_collector.collectors import (
     AssetCollector,
     NetworkCollector,
@@ -41,13 +42,11 @@ from threat_intel_aggregator.sources import (
     ThreatIntelAggregator,
     VirusTotalSource,
 )
-from ai_triage_agent.agent import AITriageAgent
-from ai_triage_agent.risk_scoring import RiskScoringEngine
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def splunk_raw_alert():
@@ -91,29 +90,35 @@ def cef_raw_alert():
 def mock_threat_intel_sources():
     """Mock threat intelligence sources."""
     vt_mock = MagicMock(spec=VirusTotalSource)
-    vt_mock.query_ioc = AsyncMock(return_value={
-        "detected": True,
-        "detection_rate": 85,
-        "positives": 17,
-        "total": 20,
-        "source": "virustotal",
-    })
+    vt_mock.query_ioc = AsyncMock(
+        return_value={
+            "detected": True,
+            "detection_rate": 85,
+            "positives": 17,
+            "total": 20,
+            "source": "virustotal",
+        }
+    )
     vt_mock.enabled = True
 
     otx_mock = MagicMock(spec=OTXSource)
-    otx_mock.query_ioc = AsyncMock(return_value={
-        "detected": True,
-        "detection_rate": 75,
-        "source": "otx",
-    })
+    otx_mock.query_ioc = AsyncMock(
+        return_value={
+            "detected": True,
+            "detection_rate": 75,
+            "source": "otx",
+        }
+    )
     otx_mock.enabled = True
 
     abuse_mock = MagicMock(spec=AbuseCHSource)
-    abuse_mock.query_ioc = AsyncMock(return_value={
-        "detected": True,
-        "detection_rate": 80,
-        "source": "abuse_ch",
-    })
+    abuse_mock.query_ioc = AsyncMock(
+        return_value={
+            "detected": True,
+            "detection_rate": 80,
+            "source": "abuse_ch",
+        }
+    )
     abuse_mock.enabled = True
 
     return vt_mock, otx_mock, abuse_mock
@@ -122,6 +127,7 @@ def mock_threat_intel_sources():
 # =============================================================================
 # Stage 1: Alert Normalizer Integration Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 class TestAlertNormalizerIntegration:
@@ -171,6 +177,7 @@ class TestAlertNormalizerIntegration:
 # =============================================================================
 # Stage 2: Context Collector Integration Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 class TestContextCollectorIntegration:
@@ -235,6 +242,7 @@ class TestContextCollectorIntegration:
 # Stage 3: Threat Intelligence Integration Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 class TestThreatIntelIntegration:
     """Test threat intelligence aggregation."""
@@ -245,10 +253,7 @@ class TestThreatIntelIntegration:
 
         aggregator = ThreatIntelAggregator(sources=[vt_mock, otx_mock, abuse_mock])
 
-        result = await aggregator.query_multiple_sources(
-            ioc="45.33.32.156",
-            ioc_type="ip"
-        )
+        result = await aggregator.query_multiple_sources(ioc="45.33.32.156", ioc_type="ip")
 
         assert "aggregate_score" in result
         assert "threat_level" in result
@@ -263,8 +268,7 @@ class TestThreatIntelIntegration:
         aggregator = ThreatIntelAggregator(sources=[vt_mock, otx_mock, abuse_mock])
 
         result = await aggregator.query_multiple_sources(
-            ioc="5d41402abc4b2a76b9719d911017c592",
-            ioc_type="hash"
+            ioc="5d41402abc4b2a76b9719d911017c592", ioc_type="hash"
         )
 
         # Should return aggregate score
@@ -281,16 +285,10 @@ class TestThreatIntelIntegration:
         ioc_value = "45.33.32.156"
 
         # First call
-        result1 = await aggregator.query_multiple_sources(
-            ioc=ioc_value,
-            ioc_type="ip"
-        )
+        result1 = await aggregator.query_multiple_sources(ioc=ioc_value, ioc_type="ip")
 
         # Second call
-        result2 = await aggregator.query_multiple_sources(
-            ioc=ioc_value,
-            ioc_type="ip"
-        )
+        result2 = await aggregator.query_multiple_sources(ioc=ioc_value, ioc_type="ip")
 
         # Results should be consistent
         assert "aggregate_score" in result1
@@ -300,6 +298,7 @@ class TestThreatIntelIntegration:
 # =============================================================================
 # Stage 4: AI Triage Agent Integration Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 class TestAITriageAgentIntegration:
@@ -413,6 +412,7 @@ class TestAITriageAgentIntegration:
 # Complete Pipeline Integration Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 class TestCompletePipelineIntegration:
     """Test complete alert processing pipeline from raw to triage."""
@@ -429,12 +429,8 @@ class TestCompletePipelineIntegration:
         network_collector = NetworkCollector()
         asset_collector = AssetCollector()
 
-        network_context = await network_collector.collect_context(
-            ip=normalized.source_ip
-        )
-        asset_context = await asset_collector.collect_context(
-            asset_id=normalized.target_ip
-        )
+        network_context = await network_collector.collect_context(ip=normalized.source_ip)
+        asset_context = await asset_collector.collect_context(asset_id=normalized.target_ip)
 
         assert network_context is not None
         assert asset_context is not None
@@ -444,8 +440,7 @@ class TestCompletePipelineIntegration:
         aggregator = ThreatIntelAggregator(sources=[vt_mock, otx_mock, abuse_mock])
 
         threat_intel = await aggregator.query_multiple_sources(
-            ioc=normalized.source_ip,
-            ioc_type="ip"
+            ioc=normalized.source_ip, ioc_type="ip"
         )
 
         assert threat_intel["aggregate_score"] > 0
@@ -476,17 +471,14 @@ class TestCompletePipelineIntegration:
 
         # Stage 2: Collect context
         network_collector = NetworkCollector()
-        network_context = await network_collector.collect_context(
-            ip=normalized.source_ip
-        )
+        network_context = await network_collector.collect_context(ip=normalized.source_ip)
 
         # Stage 3: Threat intelligence
         vt_mock, otx_mock, abuse_mock = mock_threat_intel_sources
         aggregator = ThreatIntelAggregator(sources=[vt_mock, otx_mock, abuse_mock])
 
         threat_intel = await aggregator.query_multiple_sources(
-            ioc=normalized.source_ip,
-            ioc_type="ip"
+            ioc=normalized.source_ip, ioc_type="ip"
         )
 
         # Stage 4: AI triage
@@ -511,9 +503,7 @@ class TestCompletePipelineIntegration:
 
         # Stage 2: Collect context
         network_collector = NetworkCollector()
-        network_context = await network_collector.collect_context(
-            ip=normalized.source_ip
-        )
+        network_context = await network_collector.collect_context(ip=normalized.source_ip)
 
         # Stage 3: Threat intelligence
         vt_mock, otx_mock, abuse_mock = mock_threat_intel_sources
@@ -521,8 +511,7 @@ class TestCompletePipelineIntegration:
 
         # Test hash-based IOC
         threat_intel = await aggregator.query_multiple_sources(
-            ioc=normalized.file_hash,
-            ioc_type="hash"
+            ioc=normalized.file_hash, ioc_type="hash"
         )
 
         # Stage 4: AI triage
@@ -542,6 +531,7 @@ class TestCompletePipelineIntegration:
 # =============================================================================
 # Concurrent Processing Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 class TestConcurrentProcessing:
@@ -566,10 +556,7 @@ class TestConcurrentProcessing:
         )
 
         # Process all alerts concurrently
-        tasks = [
-            agent.analyze_alert(alert=alert)
-            for alert in alerts
-        ]
+        tasks = [agent.analyze_alert(alert=alert) for alert in alerts]
 
         results = await asyncio.gather(*tasks)
 
@@ -584,6 +571,7 @@ class TestConcurrentProcessing:
 # =============================================================================
 # Error Handling and Recovery Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 class TestErrorHandling:
@@ -611,10 +599,7 @@ class TestErrorHandling:
 
         aggregator = ThreatIntelAggregator(sources=[vt_mock])
 
-        result = await aggregator.query_multiple_sources(
-            ioc="45.33.32.156",
-            ioc_type="ip"
-        )
+        result = await aggregator.query_multiple_sources(ioc="45.33.32.156", ioc_type="ip")
 
         # Should return result even with timeout
         assert "aggregate_score" in result
@@ -633,7 +618,9 @@ class TestErrorHandling:
         }
 
         # Mock risk engine to fail
-        with patch.object(agent.risk_engine, 'calculate_risk_score', side_effect=Exception("Test error")):
+        with patch.object(
+            agent.risk_engine, "calculate_risk_score", side_effect=Exception("Test error")
+        ):
             result = await agent.analyze_alert(alert=alert)
 
             # Should return fallback result

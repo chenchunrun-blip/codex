@@ -67,6 +67,7 @@ except ImportError:  # pragma: no cover
 # No-op fallbacks
 # ---------------------------------------------------------------------------
 
+
 class _NoOpSpan:
     """Minimal span-like object used when OpenTelemetry is not installed."""
 
@@ -103,6 +104,7 @@ _noop_tracer = _NoOpTracer()
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def setup_tracing(service_name: str) -> Any:
     """Initialize OpenTelemetry tracing for a service.
 
@@ -125,9 +127,7 @@ def setup_tracing(service_name: str) -> Any:
         )
         return _noop_tracer
 
-    endpoint = os.environ.get(
-        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"
-    )
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
@@ -139,8 +139,7 @@ def setup_tracing(service_name: str) -> Any:
     trace.set_tracer_provider(provider)
 
     logger.info(
-        "OpenTelemetry tracing initialised for service '%s' "
-        "(exporter endpoint: %s)",
+        "OpenTelemetry tracing initialised for service '%s' " "(exporter endpoint: %s)",
         service_name,
         endpoint,
     )
@@ -190,9 +189,7 @@ def add_tracing_middleware(app: Any) -> None:
         pass
 
     if not _OTEL_AVAILABLE:
-        logger.info(
-            "OpenTelemetry not installed – skipping tracing middleware."
-        )
+        logger.info("OpenTelemetry not installed – skipping tracing middleware.")
         return
 
     # Fallback: simple ASGI middleware using the core SDK.
@@ -239,6 +236,7 @@ def trace_async(name: str) -> Callable[[F], F]:
         async def fetch_alerts(source: str) -> list[dict]:
             ...
     """
+
     def decorator(func: F) -> F:
         if not _OTEL_AVAILABLE:
             return func

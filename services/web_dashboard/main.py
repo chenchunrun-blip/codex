@@ -14,25 +14,25 @@
 
 """Web Dashboard Service - Frontend interface for security triage system."""
 
-import os
-import uuid
 import asyncio
 import json
+import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, Optional, Set
 from pathlib import Path
+from typing import Any, Dict, Optional, Set
 
 import httpx
 import pyotp
 import redis.asyncio as redis
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.utils import Config, get_logger
-from shared.utils.crypto import encrypt_value, decrypt_value, safe_decrypt
+from shared.utils.crypto import decrypt_value, encrypt_value, safe_decrypt
 
 logger = get_logger(__name__)
 config = Config()
@@ -114,7 +114,9 @@ app = FastAPI(
 )
 
 # Configure CORS with specific origins for security
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(
+    ","
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -154,6 +156,7 @@ async def proxy_request(service: str, path: str, request: Request):
                 if "application/json" in content_type:
                     try:
                         import json
+
                         body = json.loads(raw_body)
                     except json.JSONDecodeError:
                         body = raw_body
@@ -166,7 +169,9 @@ async def proxy_request(service: str, path: str, request: Request):
 
         async with httpx.AsyncClient() as client:
             if request.method == "GET":
-                response = await client.get(url, params=request.query_params, headers=headers, timeout=30.0)
+                response = await client.get(
+                    url, params=request.query_params, headers=headers, timeout=30.0
+                )
             elif request.method == "POST":
                 if isinstance(body, dict):
                     response = await client.post(url, json=body, headers=headers, timeout=30.0)
@@ -379,9 +384,7 @@ async def mfa_setup(request: Request):
         # Generate a new TOTP secret
         secret = pyotp.random_base32()
         totp = pyotp.TOTP(secret)
-        provisioning_uri = totp.provisioning_uri(
-            user.username, issuer_name="SecurityTriage"
-        )
+        provisioning_uri = totp.provisioning_uri(user.username, issuer_name="SecurityTriage")
 
         logger.info(
             "MFA setup initiated",
@@ -715,8 +718,8 @@ async def get_metrics():
     """Get dashboard metrics from database."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select, func, case
             from shared.database.models import Alert
+            from sqlalchemy import case, func, select
 
             # Total alerts
             total_query = select(func.count()).select_from(Alert)
@@ -724,9 +727,8 @@ async def get_metrics():
             total_alerts = total_result.scalar() or 0
 
             # By severity
-            severity_query = (
-                select(Alert.severity, func.count(Alert.severity))
-                .group_by(Alert.severity)
+            severity_query = select(Alert.severity, func.count(Alert.severity)).group_by(
+                Alert.severity
             )
             severity_result = await session.execute(severity_query)
             by_severity = {row[0]: row[1] for row in severity_result.fetchall()}
@@ -739,10 +741,7 @@ async def get_metrics():
             info_alerts = by_severity.get("info", 0)
 
             # By status
-            status_query = (
-                select(Alert.status, func.count(Alert.status))
-                .group_by(Alert.status)
-            )
+            status_query = select(Alert.status, func.count(Alert.status)).group_by(Alert.status)
             status_result = await session.execute(status_query)
             by_status = {row[0]: row[1] for row in status_result.fetchall()}
 
@@ -775,7 +774,9 @@ async def get_metrics():
                     for row in resolved_alerts
                     if row[1] >= row[0]  # Only include valid time ranges
                 ]
-                avg_resolution_time = sum(resolution_times) / len(resolution_times) if resolution_times else 0
+                avg_resolution_time = (
+                    sum(resolution_times) / len(resolution_times) if resolution_times else 0
+                )
             else:
                 avg_resolution_time = 0
 
@@ -822,9 +823,10 @@ async def get_trends(
 ):
     """Get alert trends over time."""
     try:
-        from datetime import timedelta, datetime
-        from sqlalchemy import select, func
+        from datetime import datetime, timedelta
+
         from shared.database.models import Alert
+        from sqlalchemy import func, select
 
         # Parse dates or use defaults
         if not date_to:
@@ -844,49 +846,49 @@ async def get_trends(
                 # Group by hour
                 query = (
                     select(
-                        func.date_trunc('hour', Alert.created_at).label('time'),
-                        func.count(Alert.alert_id).label('count')
+                        func.date_trunc("hour", Alert.created_at).label("time"),
+                        func.count(Alert.alert_id).label("count"),
                     )
                     .where(Alert.created_at >= date_from)
                     .where(Alert.created_at <= date_to)
-                    .group_by('time')
-                    .order_by('time')
+                    .group_by("time")
+                    .order_by("time")
                 )
             elif interval == "week":
                 # Group by week
                 query = (
                     select(
-                        func.date_trunc('week', Alert.created_at).label('time'),
-                        func.count(Alert.alert_id).label('count')
+                        func.date_trunc("week", Alert.created_at).label("time"),
+                        func.count(Alert.alert_id).label("count"),
                     )
                     .where(Alert.created_at >= date_from)
                     .where(Alert.created_at <= date_to)
-                    .group_by('time')
-                    .order_by('time')
+                    .group_by("time")
+                    .order_by("time")
                 )
             elif interval == "month":
                 # Group by month
                 query = (
                     select(
-                        func.date_trunc('month', Alert.created_at).label('time'),
-                        func.count(Alert.alert_id).label('count')
+                        func.date_trunc("month", Alert.created_at).label("time"),
+                        func.count(Alert.alert_id).label("count"),
                     )
                     .where(Alert.created_at >= date_from)
                     .where(Alert.created_at <= date_to)
-                    .group_by('time')
-                    .order_by('time')
+                    .group_by("time")
+                    .order_by("time")
                 )
             else:
                 # Default: group by day
                 query = (
                     select(
-                        func.date_trunc('day', Alert.created_at).label('time'),
-                        func.count(Alert.alert_id).label('count')
+                        func.date_trunc("day", Alert.created_at).label("time"),
+                        func.count(Alert.alert_id).label("count"),
                     )
                     .where(Alert.created_at >= date_from)
                     .where(Alert.created_at <= date_to)
-                    .group_by('time')
-                    .order_by('time')
+                    .group_by("time")
+                    .order_by("time")
                 )
 
             result = await session.execute(query)
@@ -908,10 +910,7 @@ async def get_trends(
                 else:
                     date_str = time_value.strftime("%Y-%m-%d")
 
-                data.append({
-                    "date": date_str,
-                    "count": count
-                })
+                data.append({"date": date_str, "count": count})
 
             return {
                 "success": True,
@@ -920,8 +919,8 @@ async def get_trends(
                     "interval": interval,
                     "date_from": date_from.isoformat(),
                     "date_to": date_to.isoformat(),
-                    "total_points": len(data)
-                }
+                    "total_points": len(data),
+                },
             }
     except Exception as e:
         logger.error(f"Error fetching trends: {e}", exc_info=True)
@@ -936,8 +935,8 @@ async def get_top_alerts(limit: int = 5):
     """Get top alert types by count."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select, func, desc
             from shared.database.models import Alert
+            from sqlalchemy import desc, func, select
 
             # Get total count
             total_query = select(func.count()).select_from(Alert)
@@ -959,11 +958,13 @@ async def get_top_alerts(limit: int = 5):
                 count = row[1]
                 percentage = (count / total * 100) if total > 0 else 0
 
-                top_alerts.append({
-                    "alert_type": alert_type,
-                    "count": count,
-                    "percentage": round(percentage, 1),
-                })
+                top_alerts.append(
+                    {
+                        "alert_type": alert_type,
+                        "count": count,
+                        "percentage": round(percentage, 1),
+                    }
+                )
 
             return {
                 "success": True,
@@ -988,13 +989,13 @@ async def get_alerts(
     date_from: str = None,
     date_to: str = None,
     sort_by: str = "received_at",
-    sort_order: str = "desc"
+    sort_order: str = "desc",
 ):
     """Get alerts from database with filtering and search."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select, desc, func, or_, and_
             from shared.database.models import Alert
+            from sqlalchemy import and_, desc, func, or_, select
 
             # Build base query
             query = select(Alert)
@@ -1018,7 +1019,8 @@ async def get_alerts(
             if date_from:
                 try:
                     from datetime import datetime
-                    dt_from = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+
+                    dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
                     conditions.append(Alert.received_at >= dt_from)
                 except ValueError:
                     pass
@@ -1026,14 +1028,16 @@ async def get_alerts(
             if date_to:
                 try:
                     from datetime import datetime
-                    dt_to = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+
+                    dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
                     conditions.append(Alert.received_at <= dt_to)
                 except ValueError:
                     pass
 
             # Search across multiple fields
             if search:
-                from sqlalchemy import cast, String
+                from sqlalchemy import String, cast
+
                 search_pattern = f"%{search}%"
                 conditions.append(
                     or_(
@@ -1063,18 +1067,19 @@ async def get_alerts(
                 count_conditions.append(Alert.alert_type == alert_type)
             if date_from:
                 try:
-                    dt_from = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+                    dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
                     count_conditions.append(Alert.received_at >= dt_from)
                 except:
                     pass
             if date_to:
                 try:
-                    dt_to = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+                    dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
                     count_conditions.append(Alert.received_at <= dt_to)
                 except:
                     pass
             if search:
-                from sqlalchemy import cast, String
+                from sqlalchemy import String, cast
+
                 count_conditions.append(
                     or_(
                         Alert.alert_id.ilike(search_pattern),
@@ -1110,25 +1115,30 @@ async def get_alerts(
             # Convert to dict
             alerts_data = []
             for alert in alerts:
-                alerts_data.append({
-                    "id": alert.alert_id,
-                    "alert_id": alert.alert_id,
-                    "title": alert.title or (alert.description[:100] if alert.description else "Security Alert"),
-                    "description": alert.description,
-                    "alert_type": alert.alert_type,
-                    "severity": alert.severity,
-                    "status": alert.status or "pending",
-                    "source": "unknown",
-                    "source_ip": str(alert.source_ip) if alert.source_ip else None,
-                    "destination_ip": str(alert.destination_ip) if alert.destination_ip else None,
-                    "target_ip": str(alert.destination_ip) if alert.destination_ip else None,
-                    "asset_id": alert.asset_id,
-                    "user_id": alert.user_id,
-                    "file_hash": alert.file_hash,
-                    "url": alert.url,
-                    "created_at": alert.received_at.isoformat() if alert.received_at else None,
-                    "updated_at": alert.updated_at.isoformat() if alert.updated_at else None,
-                })
+                alerts_data.append(
+                    {
+                        "id": alert.alert_id,
+                        "alert_id": alert.alert_id,
+                        "title": alert.title
+                        or (alert.description[:100] if alert.description else "Security Alert"),
+                        "description": alert.description,
+                        "alert_type": alert.alert_type,
+                        "severity": alert.severity,
+                        "status": alert.status or "pending",
+                        "source": "unknown",
+                        "source_ip": str(alert.source_ip) if alert.source_ip else None,
+                        "destination_ip": (
+                            str(alert.destination_ip) if alert.destination_ip else None
+                        ),
+                        "target_ip": str(alert.destination_ip) if alert.destination_ip else None,
+                        "asset_id": alert.asset_id,
+                        "user_id": alert.user_id,
+                        "file_hash": alert.file_hash,
+                        "url": alert.url,
+                        "created_at": alert.received_at.isoformat() if alert.received_at else None,
+                        "updated_at": alert.updated_at.isoformat() if alert.updated_at else None,
+                    }
+                )
 
             # Calculate total pages
             total_pages = (total + limit - 1) // limit if limit > 0 else 0
@@ -1156,8 +1166,8 @@ async def get_alert(alert_id: str):
     """Get single alert by ID."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select
             from shared.database.models import Alert
+            from sqlalchemy import select
 
             query = select(Alert).where(Alert.alert_id == alert_id)
             result = await session.execute(query)
@@ -1174,7 +1184,8 @@ async def get_alert(alert_id: str):
                 "data": {
                     "id": alert.alert_id,
                     "alert_id": alert.alert_id,
-                    "title": alert.title or (alert.description[:100] if alert.description else "Security Alert"),
+                    "title": alert.title
+                    or (alert.description[:100] if alert.description else "Security Alert"),
                     "description": alert.description,
                     "alert_type": alert.alert_type,
                     "severity": alert.severity,
@@ -1204,6 +1215,7 @@ async def bulk_update_status(request: Request):
     """Bulk update alert status for multiple alerts."""
     try:
         import json
+
         body = await request.body()
         data = json.loads(body) if body else {}
 
@@ -1223,8 +1235,8 @@ async def bulk_update_status(request: Request):
             )
 
         async with db_manager.get_session() as session:
-            from sqlalchemy import select, update
             from shared.database.models import Alert
+            from sqlalchemy import select, update
 
             # Update all alerts
             stmt = (
@@ -1256,9 +1268,10 @@ async def create_alert(request: Request):
     try:
         import json
         import uuid
-        from sqlalchemy import select
+
         from shared.database.models import Alert
         from shared.database.repositories import AlertRepository
+        from sqlalchemy import select
 
         body = await request.body()
         data = json.loads(body) if body else {}
@@ -1339,6 +1352,7 @@ async def update_alert_status(alert_id: str, request: Request):
     """Update alert status."""
     try:
         import json
+
         body = await request.body()
         data = json.loads(body) if body else {}
         new_status = data.get("status")
@@ -1350,8 +1364,8 @@ async def update_alert_status(alert_id: str, request: Request):
             )
 
         async with db_manager.get_session() as session:
-            from sqlalchemy import select
             from shared.database.models import Alert
+            from sqlalchemy import select
 
             query = select(Alert).where(Alert.alert_id == alert_id)
             result = await session.execute(query)
@@ -1377,7 +1391,8 @@ async def update_alert_status(alert_id: str, request: Request):
                 "data": {
                     "id": alert.alert_id,
                     "alert_id": alert.alert_id,
-                    "title": alert.title or (alert.description[:100] if alert.description else "Security Alert"),
+                    "title": alert.title
+                    or (alert.description[:100] if alert.description else "Security Alert"),
                     "description": alert.description,
                     "alert_type": alert.alert_type,
                     "severity": alert.severity,
@@ -1434,28 +1449,33 @@ async def api_proxy_delete(service: str, path: str, request: Request):
 # Reports API Endpoints
 # =============================================================================
 
-import uuid
 import csv
 import io
+import uuid
 from pathlib import Path as FilePath
 
 # =============================================================================
 # Notifications API
 # =============================================================================
 
+
 @app.get("/api/v1/notifications")
 async def get_notifications(unreadOnly: bool = False):
     """Get user notifications from database."""
     try:
+        from shared.database.models import Alert, Notification
         from sqlalchemy import select
-        from shared.database.models import Notification, Alert
 
         async with db_manager.get_session() as session:
             # Get notifications from database
-            query = select(Notification).where(
-                Notification.is_deleted == False,
-                Notification.user_id == "default"  # TODO: Use actual user from auth
-            ).order_by(Notification.created_at.desc())
+            query = (
+                select(Notification)
+                .where(
+                    Notification.is_deleted == False,
+                    Notification.user_id == "default",  # TODO: Use actual user from auth
+                )
+                .order_by(Notification.created_at.desc())
+            )
 
             if unreadOnly:
                 query = query.where(Notification.is_read == False)
@@ -1466,16 +1486,18 @@ async def get_notifications(unreadOnly: bool = False):
             # Convert database notifications to API format
             notifications = []
             for notif in notifications_db:
-                notifications.append({
-                    "id": notif.notification_id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "type": notif.type,
-                    "severity": notif.severity,
-                    "read": notif.is_read,
-                    "created_at": notif.created_at.isoformat(),
-                    "link": notif.link
-                })
+                notifications.append(
+                    {
+                        "id": notif.notification_id,
+                        "title": notif.title,
+                        "message": notif.message,
+                        "type": notif.type,
+                        "severity": notif.severity,
+                        "read": notif.is_read,
+                        "created_at": notif.created_at.isoformat(),
+                        "link": notif.link,
+                    }
+                )
 
             return {
                 "success": True,
@@ -1493,13 +1515,12 @@ async def get_notifications(unreadOnly: bool = False):
 async def mark_notification_read(notification_id: str):
     """Mark a notification as read."""
     try:
-        from sqlalchemy import select, update
         from shared.database.models import Notification
+        from sqlalchemy import select, update
 
         async with db_manager.get_session() as session:
             query = select(Notification).where(
-                Notification.notification_id == notification_id,
-                Notification.is_deleted == False
+                Notification.notification_id == notification_id, Notification.is_deleted == False
             )
             result = await session.execute(query)
             notification = result.scalar_one_or_none()
@@ -1530,17 +1551,18 @@ async def mark_notification_read(notification_id: str):
 async def mark_all_notifications_read():
     """Mark all notifications as read."""
     try:
-        from sqlalchemy import update
         from shared.database.models import Notification
+        from sqlalchemy import update
 
         async with db_manager.get_session() as session:
-            stmt = update(Notification).where(
-                Notification.is_read == False,
-                Notification.is_deleted == False,
-                Notification.user_id == "default"
-            ).values(
-                is_read=True,
-                read_at=datetime.utcnow()
+            stmt = (
+                update(Notification)
+                .where(
+                    Notification.is_read == False,
+                    Notification.is_deleted == False,
+                    Notification.user_id == "default",
+                )
+                .values(is_read=True, read_at=datetime.utcnow())
             )
             await session.execute(stmt)
             await session.commit()
@@ -1562,13 +1584,12 @@ async def mark_all_notifications_read():
 async def delete_notification(notification_id: str):
     """Delete a notification (soft delete)."""
     try:
-        from sqlalchemy import select
         from shared.database.models import Notification
+        from sqlalchemy import select
 
         async with db_manager.get_session() as session:
             query = select(Notification).where(
-                Notification.notification_id == notification_id,
-                Notification.is_deleted == False
+                Notification.notification_id == notification_id, Notification.is_deleted == False
             )
             result = await session.execute(query)
             notification = result.scalar_one_or_none()
@@ -1598,13 +1619,14 @@ async def delete_notification(notification_id: str):
 # Reports API
 # =============================================================================
 
+
 @app.get("/api/v1/reports")
 async def get_reports():
     """Get list of all reports."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select, desc
             from shared.database.models import Report
+            from sqlalchemy import desc, select
 
             query = select(Report).order_by(desc(Report.created_at))
             result = await session.execute(query)
@@ -1612,18 +1634,26 @@ async def get_reports():
 
             reports_data = []
             for report in reports:
-                reports_data.append({
-                    "id": report.report_id,
-                    "name": report.name,
-                    "description": report.description,
-                    "type": report.report_type,
-                    "format": report.format,
-                    "status": report.status,
-                    "file_url": f"/api/v1/reports/{report.report_id}/download" if report.file_path else None,
-                    "created_at": report.created_at.isoformat(),
-                    "created_by": report.created_by,
-                    "related_alerts": report.related_alerts if hasattr(report, 'related_alerts') else [],
-                })
+                reports_data.append(
+                    {
+                        "id": report.report_id,
+                        "name": report.name,
+                        "description": report.description,
+                        "type": report.report_type,
+                        "format": report.format,
+                        "status": report.status,
+                        "file_url": (
+                            f"/api/v1/reports/{report.report_id}/download"
+                            if report.file_path
+                            else None
+                        ),
+                        "created_at": report.created_at.isoformat(),
+                        "created_by": report.created_by,
+                        "related_alerts": (
+                            report.related_alerts if hasattr(report, "related_alerts") else []
+                        ),
+                    }
+                )
 
             return {
                 "success": True,
@@ -1642,8 +1672,8 @@ async def get_report(report_id: str):
     """Get single report by ID."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select
             from shared.database.models import Report
+            from sqlalchemy import select
 
             query = select(Report).where(Report.report_id == report_id)
             result = await session.execute(query)
@@ -1664,12 +1694,18 @@ async def get_report(report_id: str):
                     "type": report.report_type,
                     "format": report.format,
                     "status": report.status,
-                    "file_url": f"/api/v1/reports/{report.report_id}/download" if report.file_path else None,
+                    "file_url": (
+                        f"/api/v1/reports/{report.report_id}/download" if report.file_path else None
+                    ),
                     "created_at": report.created_at.isoformat(),
                     "created_by": report.created_by,
-                    "completed_at": report.completed_at.isoformat() if report.completed_at else None,
+                    "completed_at": (
+                        report.completed_at.isoformat() if report.completed_at else None
+                    ),
                     "error_message": report.error_message,
-                    "related_alerts": report.related_alerts if hasattr(report, 'related_alerts') else [],
+                    "related_alerts": (
+                        report.related_alerts if hasattr(report, "related_alerts") else []
+                    ),
                 },
             }
     except Exception as e:
@@ -1685,6 +1721,7 @@ async def create_report(request: Request):
     """Create a new report."""
     try:
         import json
+
         body = await request.body()
         data = json.loads(body) if body else {}
 
@@ -1752,8 +1789,8 @@ async def generate_report_async(report_id: str):
     """Generate report in background."""
     try:
         async with db_manager.get_session() as session:
+            from shared.database.models import Alert, Report
             from sqlalchemy import select
-            from shared.database.models import Report, Alert
 
             query = select(Report).where(Report.report_id == report_id)
             result = await session.execute(query)
@@ -1808,8 +1845,8 @@ async def generate_report_async(report_id: str):
         # Update status to failed
         try:
             async with db_manager.get_session() as session:
-                from sqlalchemy import select
                 from shared.database.models import Report
+                from sqlalchemy import select
 
                 query = select(Report).where(Report.report_id == report_id)
                 result = await session.execute(query)
@@ -1826,8 +1863,8 @@ async def generate_report_async(report_id: str):
 async def generate_alert_report_data(filters: dict) -> dict:
     """Generate alert report data."""
     async with db_manager.get_session() as session:
-        from sqlalchemy import select, func, desc
         from shared.database.models import Alert
+        from sqlalchemy import desc, func, select
 
         # Get filtered alerts
         query = select(Alert)
@@ -1842,6 +1879,7 @@ async def generate_alert_report_data(filters: dict) -> dict:
 
         if conditions:
             from sqlalchemy import and_
+
             query = query.where(and_(*conditions))
 
         query = query.order_by(desc(Alert.received_at))
@@ -1885,31 +1923,24 @@ async def generate_alert_report_data(filters: dict) -> dict:
 async def generate_metrics_report_data(filters: dict) -> dict:
     """Generate metrics report data."""
     async with db_manager.get_session() as session:
-        from sqlalchemy import select, func
         from shared.database.models import Alert
+        from sqlalchemy import func, select
 
         # Get metrics
         total_query = select(func.count()).select_from(Alert)
         total_result = await session.execute(total_query)
         total_alerts = total_result.scalar() or 0
 
-        severity_query = (
-            select(Alert.severity, func.count(Alert.severity))
-            .group_by(Alert.severity)
-        )
+        severity_query = select(Alert.severity, func.count(Alert.severity)).group_by(Alert.severity)
         severity_result = await session.execute(severity_query)
         by_severity = {row[0]: row[1] for row in severity_result.fetchall()}
 
-        status_query = (
-            select(Alert.status, func.count(Alert.status))
-            .group_by(Alert.status)
-        )
+        status_query = select(Alert.status, func.count(Alert.status)).group_by(Alert.status)
         status_result = await session.execute(status_query)
         by_status = {row[0]: row[1] for row in status_result.fetchall()}
 
-        type_query = (
-            select(Alert.alert_type, func.count(Alert.alert_type))
-            .group_by(Alert.alert_type)
+        type_query = select(Alert.alert_type, func.count(Alert.alert_type)).group_by(
+            Alert.alert_type
         )
         type_result = await session.execute(type_query)
         by_type = {row[0]: row[1] for row in type_result.fetchall()}
@@ -2026,6 +2057,7 @@ async def generate_pdf_report(data: dict, file_path: FilePath, title: str):
     # For now, save HTML as the file (could be converted to PDF with weasyprint)
     # Rename to .pdf for compatibility (browsers can render HTML)
     import shutil
+
     shutil.copy(html_path, file_path)
 
 
@@ -2034,8 +2066,8 @@ async def download_report(report_id: str):
     """Download report file or generate content for preview."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select
             from shared.database.models import Report
+            from sqlalchemy import select
 
             query = select(Report).where(Report.report_id == report_id)
             result = await session.execute(query)
@@ -2049,12 +2081,13 @@ async def download_report(report_id: str):
 
             # If file doesn't exist, generate it on-the-fly
             if not report.file_path or not FilePath(report.file_path).exists():
-                from fastapi.responses import Response
                 import json
                 from datetime import datetime
 
+                from fastapi.responses import Response
+
                 # Generate report content based on format
-                if report.format == 'json':
+                if report.format == "json":
                     content = {
                         "report_id": report.report_id,
                         "name": report.name,
@@ -2069,17 +2102,17 @@ async def download_report(report_id: str):
                                 "critical": 5,
                                 "high": 25,
                                 "medium": 60,
-                                "low": 60
-                            }
-                        }
+                                "low": 60,
+                            },
+                        },
                     }
                     return Response(
                         content=json.dumps(content, indent=2),
                         media_type="application/json",
-                        headers={"Content-Disposition": f"inline; filename={report.name}.json"}
+                        headers={"Content-Disposition": f"inline; filename={report.name}.json"},
                     )
 
-                elif report.format == 'csv':
+                elif report.format == "csv":
                     content = f"""Report Name,{report.name}
 Description,{report.description}
 Type,{report.report_type}
@@ -2089,10 +2122,10 @@ Metrics,150,5,25,60,60"""
                     return Response(
                         content=content,
                         media_type="text/csv",
-                        headers={"Content-Disposition": f"inline; filename={report.name}.csv"}
+                        headers={"Content-Disposition": f"inline; filename={report.name}.csv"},
                     )
 
-                elif report.format == 'pdf':
+                elif report.format == "pdf":
                     # For PDF, return HTML content that can be previewed
                     html_content = f"""
 <!DOCTYPE html>
@@ -2172,10 +2205,10 @@ Metrics,150,5,25,60,60"""
                     return Response(
                         content=html_content,
                         media_type="text/html",
-                        headers={"Content-Disposition": f"inline; filename={report.name}.html"}
+                        headers={"Content-Disposition": f"inline; filename={report.name}.html"},
                     )
 
-                elif report.format == 'excel':
+                elif report.format == "excel":
                     # For Excel, return CSV format as fallback
                     content = f"""Report Name,{report.name}
 Description,{report.description}
@@ -2186,11 +2219,12 @@ Metrics,150,5,25,60,60"""
                     return Response(
                         content=content,
                         media_type="text/csv",
-                        headers={"Content-Disposition": f"inline; filename={report.name}.csv"}
+                        headers={"Content-Disposition": f"inline; filename={report.name}.csv"},
                     )
 
             # If file exists, serve it
             from fastapi.responses import FileResponse
+
             return FileResponse(
                 path=report.file_path,
                 filename=f"{report.name}.{report.format}",
@@ -2209,8 +2243,8 @@ async def delete_report(report_id: str):
     """Delete report."""
     try:
         async with db_manager.get_session() as session:
-            from sqlalchemy import select
             from shared.database.models import Report
+            from sqlalchemy import select
 
             query = select(Report).where(Report.report_id == report_id)
             result = await session.execute(query)
@@ -2247,6 +2281,7 @@ async def delete_report(report_id: str):
 # Configuration API Endpoints
 # =============================================================================
 
+
 # Configuration storage (in production, this would be in database)
 @app.get("/api/v1/config")
 async def get_configs(category: str = None):
@@ -2266,157 +2301,156 @@ async def get_configs(category: str = None):
                     "auto_triage_enabled": {
                         "value": False,
                         "category": "alerts",
-                        "description": "Enable automatic AI triage for incoming alerts"
+                        "description": "Enable automatic AI triage for incoming alerts",
                     },
                     "auto_response_threshold": {
                         "value": "high",
                         "category": "alerts",
-                        "description": "Minimum severity for automatic response actions"
+                        "description": "Minimum severity for automatic response actions",
                     },
                     "human_review_required": {
                         "value": ["critical", "high"],
                         "category": "alerts",
-                        "description": "Alert severities requiring human review"
+                        "description": "Alert severities requiring human review",
                     },
-
                     # Automation category
                     "approval_required": {
                         "value": True,
                         "category": "automation",
-                        "description": "Require approval before executing automation playbooks"
+                        "description": "Require approval before executing automation playbooks",
                     },
                     "timeout_seconds": {
                         "value": 300,
                         "category": "automation",
-                        "description": "Maximum time to wait for automation completion (max 5 minutes)"
+                        "description": "Maximum time to wait for automation completion (max 5 minutes)",
                     },
                     "max_concurrent_executions": {
                         "value": 10,
                         "category": "automation",
-                        "description": "Maximum number of parallel automation workflows"
+                        "description": "Maximum number of parallel automation workflows",
                     },
-
                     # LLM category - Multiple LLM Provider Configuration
                     "llm_provider": {
                         "value": "zhipu",
                         "category": "llm",
-                        "description": "Primary LLM provider for alert analysis"
+                        "description": "Primary LLM provider for alert analysis",
                     },
                     # Zhipu AI (智谱AI)
                     "zhipu_api_key": {
                         "value": "",
                         "category": "llm",
-                        "description": "Zhipu AI API key (get from https://open.bigmodel.cn/)"
+                        "description": "Zhipu AI API key (get from https://open.bigmodel.cn/)",
                     },
                     "zhipu_model": {
                         "value": "glm-4-flash",
                         "category": "llm",
-                        "description": "Zhipu AI model to use"
+                        "description": "Zhipu AI model to use",
                     },
                     "zhipu_base_url": {
                         "value": "https://open.bigmodel.cn/api/paas/v4/",
                         "category": "llm",
-                        "description": "Zhipu AI API base URL"
+                        "description": "Zhipu AI API base URL",
                     },
                     # DeepSeek
                     "deepseek_api_key": {
                         "value": "",
                         "category": "llm",
-                        "description": "DeepSeek API key (get from https://platform.deepseek.com/)"
+                        "description": "DeepSeek API key (get from https://platform.deepseek.com/)",
                     },
                     "deepseek_model": {
                         "value": "deepseek-v3",
                         "category": "llm",
-                        "description": "DeepSeek model to use"
+                        "description": "DeepSeek model to use",
                     },
                     "deepseek_base_url": {
                         "value": "https://api.deepseek.com/v1",
                         "category": "llm",
-                        "description": "DeepSeek API base URL"
+                        "description": "DeepSeek API base URL",
                     },
                     # Qwen (通义千问)
                     "qwen_api_key": {
                         "value": "",
                         "category": "llm",
-                        "description": "Alibaba Qwen API key (get from https://bailian.console.aliyun.com/)"
+                        "description": "Alibaba Qwen API key (get from https://bailian.console.aliyun.com/)",
                     },
                     "qwen_model": {
                         "value": "qwen3-max",
                         "category": "llm",
-                        "description": "Qwen model to use"
+                        "description": "Qwen model to use",
                     },
                     "qwen_base_url": {
                         "value": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                         "category": "llm",
-                        "description": "Qwen API base URL"
+                        "description": "Qwen API base URL",
                     },
                     # OpenAI
                     "openai_api_key": {
                         "value": "",
                         "category": "llm",
-                        "description": "OpenAI API key (get from https://platform.openai.com/api-keys)"
+                        "description": "OpenAI API key (get from https://platform.openai.com/api-keys)",
                     },
                     "openai_model": {
                         "value": "gpt-4-turbo",
                         "category": "llm",
-                        "description": "OpenAI model to use"
+                        "description": "OpenAI model to use",
                     },
                     "openai_base_url": {
                         "value": "https://api.openai.com/v1",
                         "category": "llm",
-                        "description": "OpenAI API base URL"
+                        "description": "OpenAI API base URL",
                     },
                     # Common LLM Settings
                     "temperature": {
                         "value": 0.0,
                         "category": "llm",
-                        "description": "LLM temperature (0.0 - 1.0)"
+                        "description": "LLM temperature (0.0 - 1.0)",
                     },
                     "max_tokens": {
                         "value": 2000,
                         "category": "llm",
-                        "description": "Maximum LLM response length"
+                        "description": "Maximum LLM response length",
                     },
-
                     # Notifications category
                     "email_enabled": {
                         "value": True,
                         "category": "notifications",
-                        "description": "Enable email notifications"
+                        "description": "Enable email notifications",
                     },
                     "slack_enabled": {
                         "value": False,
                         "category": "notifications",
-                        "description": "Enable Slack notifications"
+                        "description": "Enable Slack notifications",
                     },
                     "webhook_enabled": {
                         "value": False,
                         "category": "notifications",
-                        "description": "Enable webhook notifications"
+                        "description": "Enable webhook notifications",
                     },
-
                     # Preferences category
                     "theme": {
                         "value": "light",
                         "category": "preferences",
-                        "description": "Interface theme"
+                        "description": "Interface theme",
                     },
                     "language": {
                         "value": "en",
                         "category": "preferences",
-                        "description": "Interface language"
+                        "description": "Interface language",
                     },
                     "timezone": {
                         "value": "UTC",
                         "category": "preferences",
-                        "description": "User timezone"
+                        "description": "User timezone",
                     },
                 }
 
                 # Only initialize configs for requested category
                 if category:
-                    default_configs = {k: v for k, v in all_default_configs.items()
-                                   if v.get("category") == category}
+                    default_configs = {
+                        k: v
+                        for k, v in all_default_configs.items()
+                        if v.get("category") == category
+                    }
                 else:
                     default_configs = all_default_configs
 
@@ -2430,7 +2464,7 @@ async def get_configs(category: str = None):
                     # Map to new structure for configs_dict
                     configs_dict[key] = {
                         "value": config_data["value"],
-                        "category": config_data["category"]
+                        "category": config_data["category"],
                     }
 
             configs = []
@@ -2531,6 +2565,7 @@ async def update_preferences(request: Request):
     """Update user preferences."""
     try:
         import json
+
         from shared.database.repositories import SettingsRepository
 
         body = await request.body()
@@ -2560,6 +2595,7 @@ async def update_config(key: str, request: Request):
     try:
         import json
         from datetime import datetime
+
         from shared.database.repositories import SettingsRepository
 
         body = await request.body()
@@ -2582,7 +2618,9 @@ async def update_config(key: str, request: Request):
             repo = SettingsRepository(session)
 
             # Try to update existing config
-            config = await repo.update_config(key, value if isinstance(value, (dict, list)) else {"value": value})
+            config = await repo.update_config(
+                key, value if isinstance(value, (dict, list)) else {"value": value}
+            )
 
             if config:
                 # Refresh the config to access its properties
@@ -2596,7 +2634,11 @@ async def update_config(key: str, request: Request):
                     "data": {
                         "key": key,
                         "value": "******" if key in SENSITIVE_CONFIG_KEYS else value,
-                        "updated_at": config.updated_at.isoformat() if config.updated_at else datetime.utcnow().isoformat(),
+                        "updated_at": (
+                            config.updated_at.isoformat()
+                            if config.updated_at
+                            else datetime.utcnow().isoformat()
+                        ),
                     },
                 }
             else:
@@ -2614,7 +2656,11 @@ async def update_config(key: str, request: Request):
                     "data": {
                         "key": key,
                         "value": "******" if key in SENSITIVE_CONFIG_KEYS else value,
-                        "updated_at": config.updated_at.isoformat() if config.updated_at else datetime.utcnow().isoformat(),
+                        "updated_at": (
+                            config.updated_at.isoformat()
+                            if config.updated_at
+                            else datetime.utcnow().isoformat()
+                        ),
                     },
                 }
     except Exception as e:
@@ -2663,6 +2709,7 @@ async def reset_config_to_defaults(request: Request):
     """Reset configuration to default values."""
     try:
         import json
+
         from shared.database.repositories import SettingsRepository
 
         body = await request.body()
@@ -2689,21 +2736,39 @@ async def reset_config_to_defaults(request: Request):
                 # Update or create config with default value
                 config = await repo.update_config(
                     key,
-                    {"value": default_value} if not isinstance(default_value, dict) else default_value
+                    (
+                        {"value": default_value}
+                        if not isinstance(default_value, dict)
+                        else default_value
+                    ),
                 )
 
                 if not config:
                     # Create if doesn't exist
                     category_name = (
-                        "alerts" if key.startswith("auto_")
-                        else "automation" if "timeout" in key or "concurrent" in key
-                        else "notifications" if "enabled" in key
-                        else "llm" if key in ["provider", "model", "temperature", "max_tokens"]
-                        else "preferences"
+                        "alerts"
+                        if key.startswith("auto_")
+                        else (
+                            "automation"
+                            if "timeout" in key or "concurrent" in key
+                            else (
+                                "notifications"
+                                if "enabled" in key
+                                else (
+                                    "llm"
+                                    if key in ["provider", "model", "temperature", "max_tokens"]
+                                    else "preferences"
+                                )
+                            )
+                        )
                     )
                     await repo.create_config(
                         config_key=key,
-                        config_value={"value": default_value} if not isinstance(default_value, dict) else default_value,
+                        config_value=(
+                            {"value": default_value}
+                            if not isinstance(default_value, dict)
+                            else default_value
+                        ),
                         description=f"Configuration for {key}",
                     )
 
@@ -2753,6 +2818,7 @@ async def get_feature_flags():
 # Workflow API
 # =============================================================================
 
+
 @app.get("/api/v1/workflows")
 async def get_workflows(alert_id: str = None):
     """Get list of workflows, optionally filtered by alert_id."""
@@ -2778,7 +2844,9 @@ async def get_workflows(alert_id: str = None):
                     "total_executions": wf.total_executions,
                     "successful_executions": wf.successful_executions,
                     "failed_executions": wf.failed_executions,
-                    "last_execution_at": wf.last_execution_at.isoformat() if wf.last_execution_at else None,
+                    "last_execution_at": (
+                        wf.last_execution_at.isoformat() if wf.last_execution_at else None
+                    ),
                     "last_execution_status": wf.last_execution_status,
                     "created_at": wf.created_at.isoformat(),
                     "updated_at": wf.updated_at.isoformat(),
@@ -2821,7 +2889,11 @@ async def get_workflow(workflow_id: str):
                     "total_executions": workflow.total_executions,
                     "successful_executions": workflow.successful_executions,
                     "failed_executions": workflow.failed_executions,
-                    "last_execution_at": workflow.last_execution_at.isoformat() if workflow.last_execution_at else None,
+                    "last_execution_at": (
+                        workflow.last_execution_at.isoformat()
+                        if workflow.last_execution_at
+                        else None
+                    ),
                     "last_execution_status": workflow.last_execution_status,
                     "created_by": workflow.created_by,
                     "created_at": workflow.created_at.isoformat(),
@@ -2848,8 +2920,8 @@ async def get_workflow(workflow_id: str):
 async def get_workflow_templates():
     """Get all workflow templates."""
     try:
-        from sqlalchemy import select
         from shared.database.models import WorkflowTemplate
+        from sqlalchemy import select
 
         async with db_manager.get_session() as session:
             query = select(WorkflowTemplate).where(WorkflowTemplate.is_active == True)
@@ -2858,17 +2930,19 @@ async def get_workflow_templates():
 
             templates_data = []
             for template in templates:
-                templates_data.append({
-                    "id": template.template_id,
-                    "name": template.name,
-                    "description": template.description,
-                    "category": template.category,
-                    "steps": template.steps_count,
-                    "stepDetails": template.steps,  # Full step details
-                    "estimated_time": template.estimated_time,
-                    "created_at": template.created_at.isoformat(),
-                    "updated_at": template.updated_at.isoformat(),
-                })
+                templates_data.append(
+                    {
+                        "id": template.template_id,
+                        "name": template.name,
+                        "description": template.description,
+                        "category": template.category,
+                        "steps": template.steps_count,
+                        "stepDetails": template.steps,  # Full step details
+                        "estimated_time": template.estimated_time,
+                        "created_at": template.created_at.isoformat(),
+                        "updated_at": template.updated_at.isoformat(),
+                    }
+                )
 
             return {
                 "success": True,
@@ -2888,6 +2962,7 @@ async def create_workflow(request: Request):
     try:
         import json
         import uuid
+
         from shared.database.repositories import WorkflowRepository
 
         body = await request.body()
@@ -2937,12 +3012,12 @@ async def create_workflow(request: Request):
         )
 
 
-
 @app.post("/api/v1/workflows/{workflow_id}/actions")
 async def execute_workflow_action(workflow_id: str, request: Request):
     """Execute workflow action (start, pause, cancel, retry)."""
     try:
         import json
+
         from shared.database.repositories import WorkflowRepository
 
         body = await request.body()
@@ -2964,6 +3039,7 @@ async def execute_workflow_action(workflow_id: str, request: Request):
                 await repo.update_workflow(workflow_id, status="running")
                 # Create execution record
                 import uuid
+
                 execution_id = f"exec-{uuid.uuid4().hex[:8]}"
                 await repo.create_workflow_execution(
                     execution_id=execution_id,
@@ -3127,6 +3203,7 @@ _workflow_templates = {
 async def execute_workflow_steps(workflow_id: str, steps: list, config: dict):
     """Execute workflow steps with actual automation logic."""
     import asyncio
+
     from shared.database.repositories import WorkflowRepository
 
     async with db_manager.get_session() as session:
@@ -3144,6 +3221,7 @@ async def execute_workflow_steps(workflow_id: str, steps: list, config: dict):
 
                 # Random failures for demo (10% chance)
                 import random
+
                 if random.random() < 0.1:
                     raise Exception(f"Step {step['name']} failed")
 
@@ -3173,6 +3251,7 @@ async def execute_workflow_from_template(request: Request):
     try:
         import json
         import uuid
+
         from shared.database.repositories import WorkflowRepository
 
         body = await request.body()
@@ -3222,6 +3301,7 @@ async def execute_workflow_from_template(request: Request):
 
         # Start background execution
         import asyncio
+
         asyncio.create_task(execute_workflow_steps(workflow_id, template["steps"], config))
 
         logger.info(f"Workflow {workflow_id} created from template {template_id}")
@@ -3253,12 +3333,14 @@ async def execute_workflow_from_template(request: Request):
 # AI Triage with Zhipu AI (智谱AI)
 # =============================================================================
 
+
 @app.post("/api/v1/ai/analyze-alert")
 async def analyze_alert_with_ai(request: Request):
     """Analyze a security alert using configured LLM provider."""
     try:
         import json
-        from llm_client import ZhipuAIClient, DeepSeekClient, QwenClient, OpenAIClient
+
+        from llm_client import DeepSeekClient, OpenAIClient, QwenClient, ZhipuAIClient
 
         body = await request.body()
         data = json.loads(body) if body else {}
@@ -3275,6 +3357,7 @@ async def analyze_alert_with_ai(request: Request):
         # Get LLM configuration from database
         async with db_manager.get_session() as session:
             from shared.database.repositories import SettingsRepository
+
             repo = SettingsRepository(session)
 
             configs = await repo.get_all_configs()
@@ -3310,12 +3393,17 @@ async def analyze_alert_with_ai(request: Request):
             # Get API key and configuration for selected provider
             if llm_provider == "zhipu":
                 api_key = get_config_value("zhipu_api_key")
-                base_url = get_config_value("zhipu_base_url") or "https://open.bigmodel.cn/api/paas/v4/"
+                base_url = (
+                    get_config_value("zhipu_base_url") or "https://open.bigmodel.cn/api/paas/v4/"
+                )
                 model = get_config_value("zhipu_model") or "glm-4-flash"
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "Zhipu AI API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "Zhipu AI API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3328,7 +3416,10 @@ async def analyze_alert_with_ai(request: Request):
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "DeepSeek API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "DeepSeek API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3336,12 +3427,18 @@ async def analyze_alert_with_ai(request: Request):
 
             elif llm_provider == "qwen":
                 api_key = get_config_value("qwen_api_key")
-                base_url = get_config_value("qwen_base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                base_url = (
+                    get_config_value("qwen_base_url")
+                    or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                )
                 model = get_config_value("qwen_model") or "qwen3-max"
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "Qwen API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "Qwen API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3354,7 +3451,10 @@ async def analyze_alert_with_ai(request: Request):
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "OpenAI API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "OpenAI API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3376,7 +3476,9 @@ async def analyze_alert_with_ai(request: Request):
             max_tokens = 2000
 
         # Analyze the alert
-        result = await client.analyze_alert(alert_data, context, temperature=temperature, max_tokens=max_tokens)
+        result = await client.analyze_alert(
+            alert_data, context, temperature=temperature, max_tokens=max_tokens
+        )
 
         # Close the client
         await client.close()
@@ -3401,7 +3503,8 @@ async def batch_analyze_alerts_with_ai(request: Request):
     """Analyze multiple alerts using configured LLM provider."""
     try:
         import json
-        from llm_client import ZhipuAIClient, DeepSeekClient, QwenClient, OpenAIClient
+
+        from llm_client import DeepSeekClient, OpenAIClient, QwenClient, ZhipuAIClient
 
         body = await request.body()
         data = json.loads(body) if body else {}
@@ -3417,6 +3520,7 @@ async def batch_analyze_alerts_with_ai(request: Request):
         # Get LLM configuration from database
         async with db_manager.get_session() as session:
             from shared.database.repositories import SettingsRepository
+
             repo = SettingsRepository(session)
 
             configs = await repo.get_all_configs()
@@ -3450,12 +3554,17 @@ async def batch_analyze_alerts_with_ai(request: Request):
             # Get API key and configuration for selected provider
             if llm_provider == "zhipu":
                 api_key = get_config_value("zhipu_api_key")
-                base_url = get_config_value("zhipu_base_url") or "https://open.bigmodel.cn/api/paas/v4/"
+                base_url = (
+                    get_config_value("zhipu_base_url") or "https://open.bigmodel.cn/api/paas/v4/"
+                )
                 model = get_config_value("zhipu_model") or "glm-4-flash"
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "Zhipu AI API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "Zhipu AI API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3468,7 +3577,10 @@ async def batch_analyze_alerts_with_ai(request: Request):
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "DeepSeek API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "DeepSeek API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3476,12 +3588,18 @@ async def batch_analyze_alerts_with_ai(request: Request):
 
             elif llm_provider == "qwen":
                 api_key = get_config_value("qwen_api_key")
-                base_url = get_config_value("qwen_base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                base_url = (
+                    get_config_value("qwen_base_url")
+                    or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                )
                 model = get_config_value("qwen_model") or "qwen3-max"
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "Qwen API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "Qwen API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3494,7 +3612,10 @@ async def batch_analyze_alerts_with_ai(request: Request):
 
                 if not api_key:
                     return JSONResponse(
-                        content={"success": False, "error": "OpenAI API key not configured. Please configure it in Settings > AI Models"},
+                        content={
+                            "success": False,
+                            "error": "OpenAI API key not configured. Please configure it in Settings > AI Models",
+                        },
                         status_code=400,
                     )
 
@@ -3527,6 +3648,7 @@ async def batch_analyze_alerts_with_ai(request: Request):
 # =============================================================================
 # WebSocket Support for Real-time Updates
 # =============================================================================
+
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -3591,14 +3713,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 for wf in workflows
             ]
 
-        await websocket.send_json({
-            "type": "connected",
-            "message": "WebSocket connected successfully",
-            "data": {
-                "metrics": {},
-                "workflows": workflows_data,
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "message": "WebSocket connected successfully",
+                "data": {
+                    "metrics": {},
+                    "workflows": workflows_data,
+                },
             }
-        })
+        )
 
         # Keep connection alive and handle client messages
         while True:
@@ -3611,10 +3735,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"type": "pong"})
                 elif message.get("type") == "subscribe":
                     # Client wants to subscribe to specific updates
-                    await websocket.send_json({
-                        "type": "subscribed",
-                        "channels": message.get("channels", [])
-                    })
+                    await websocket.send_json(
+                        {"type": "subscribed", "channels": message.get("channels", [])}
+                    )
             except json.JSONDecodeError:
                 logger.warning(f"Invalid JSON received from client: {data}")
 
@@ -3653,10 +3776,12 @@ async def broadcast_updates():
                     }
                     for wf in workflows
                 ]
-                await manager.broadcast({
-                    "type": "workflows_update",
-                    "data": workflows_data,
-                })
+                await manager.broadcast(
+                    {
+                        "type": "workflows_update",
+                        "data": workflows_data,
+                    }
+                )
 
             logger.debug("Broadcasted updates to all clients")
         except Exception as e:
@@ -3684,7 +3809,7 @@ async def serve_spa(full_path: str):
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",
-            }
+            },
         )
     return JSONResponse(
         content={"success": False, "error": "Frontend not built"},
@@ -3703,7 +3828,7 @@ async def root():
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",
-            }
+            },
         )
     return JSONResponse(
         content={"success": False, "error": "Frontend not built"},

@@ -23,10 +23,10 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-
 # =============================================================================
 # Base Response Models
 # =============================================================================
+
 
 class ApiResponse(BaseModel):
     """
@@ -104,6 +104,7 @@ class PaginatedResponse(ApiResponse):
 # =============================================================================
 # Alert Response Models
 # =============================================================================
+
 
 class AlertResponse(BaseModel):
     """
@@ -206,6 +207,7 @@ class AlertStatsResponse(BaseModel):
 # Triage Response Models
 # =============================================================================
 
+
 class TriageResultResponse(BaseModel):
     """
     Triage result response model.
@@ -259,6 +261,7 @@ class TriageResultResponse(BaseModel):
 # =============================================================================
 # Analytics Response Models
 # =============================================================================
+
 
 class AnalyticsMetricResponse(BaseModel):
     """
@@ -340,6 +343,7 @@ class TrendResponse(BaseModel):
 # Authentication Response Models
 # =============================================================================
 
+
 class LoginResponse(BaseModel):
     """
     Login response model.
@@ -396,6 +400,7 @@ class UserResponse(BaseModel):
 # Error Response Models
 # =============================================================================
 
+
 class ErrorResponse(BaseModel):
     """
     Error response model.
@@ -432,6 +437,7 @@ class ValidationErrorResponse(ErrorResponse):
 # Health Response Models
 # =============================================================================
 
+
 class HealthResponse(BaseModel):
     """
     Health check response model.
@@ -450,6 +456,7 @@ class HealthResponse(BaseModel):
 # =============================================================================
 # Bulk Action Response Models
 # =============================================================================
+
 
 class BulkActionResponse(BaseModel):
     """

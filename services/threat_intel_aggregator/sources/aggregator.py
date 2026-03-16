@@ -53,11 +53,7 @@ class ThreatIntelAggregator:
         self.sources = {s.__class__.__name__: s for s in sources}
         logger.info(f"ThreatIntelAggregator initialized with {len(sources)} sources")
 
-    async def query_multiple_sources(
-        self,
-        ioc: str,
-        ioc_type: str = "auto"
-    ) -> Dict[str, Any]:
+    async def query_multiple_sources(self, ioc: str, ioc_type: str = "auto") -> Dict[str, Any]:
         """
         Query multiple threat intel sources in parallel.
 
@@ -142,10 +138,12 @@ class ThreatIntelAggregator:
 
             # Record detections
             if detected:
-                detections.append({
-                    "source": result.get("source", source_name),
-                    "detection_rate": result.get("detection_rate", 0),
-                })
+                detections.append(
+                    {
+                        "source": result.get("source", source_name),
+                        "detection_rate": result.get("detection_rate", 0),
+                    }
+                )
 
         # Calculate aggregate score (0-100)
         if weight_sum > 0:
@@ -176,9 +174,7 @@ class ThreatIntelAggregator:
         }
 
     async def query_batch(
-        self,
-        iocs: List[str],
-        ioc_type: str = "auto"
+        self, iocs: List[str], ioc_type: str = "auto"
     ) -> Dict[str, Dict[str, Any]]:
         """
         Query multiple IOCs in parallel.

@@ -19,7 +19,6 @@ import time
 from datetime import datetime
 
 import pytest
-
 from shared.deduplication import AlertDeduplicator, compute_fingerprint
 from shared.models.alert import AlertType, SecurityAlert, Severity
 

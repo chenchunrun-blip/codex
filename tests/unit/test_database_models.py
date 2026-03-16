@@ -19,8 +19,6 @@ Tests model definitions, relationships, and table configurations.
 """
 
 import pytest
-from sqlalchemy import inspect
-
 from shared.database.models import (
     Alert,
     AlertContext,
@@ -40,6 +38,7 @@ from shared.database.models import (
     WorkflowExecution,
     WorkflowTemplate,
 )
+from sqlalchemy import inspect
 
 
 class TestAlertModel:
@@ -209,11 +208,23 @@ class TestAuditLogModel:
 class TestAllModelsHaveTimestamps:
     """Test that all models have created_at/updated_at timestamps."""
 
-    @pytest.mark.parametrize("model", [
-        User, Asset, Alert, AlertContext, TriageResult,
-        Incident, RemediationAction, Report, SystemConfig,
-        Workflow, WorkflowExecution, Notification,
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            User,
+            Asset,
+            Alert,
+            AlertContext,
+            TriageResult,
+            Incident,
+            RemediationAction,
+            Report,
+            SystemConfig,
+            Workflow,
+            WorkflowExecution,
+            Notification,
+        ],
+    )
     def test_has_created_at(self, model):
         mapper = inspect(model)
         column_names = [c.key for c in mapper.column_attrs]
@@ -226,10 +237,23 @@ class TestBaseClass:
     def test_all_models_extend_base(self):
         """All models should extend the common Base."""
         models = [
-            User, Asset, Alert, AlertContext, TriageResult,
-            ThreatIntel, Incident, IncidentAlert, RemediationAction,
-            AuditLog, Report, SystemConfig, UserPreference,
-            Workflow, WorkflowExecution, WorkflowTemplate, Notification,
+            User,
+            Asset,
+            Alert,
+            AlertContext,
+            TriageResult,
+            ThreatIntel,
+            Incident,
+            IncidentAlert,
+            RemediationAction,
+            AuditLog,
+            Report,
+            SystemConfig,
+            UserPreference,
+            Workflow,
+            WorkflowExecution,
+            WorkflowTemplate,
+            Notification,
         ]
         for model in models:
             assert issubclass(model, Base)

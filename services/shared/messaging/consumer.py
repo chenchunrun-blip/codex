@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from aio_pika import DeliveryMode, ExchangeType, RobustConnection, connect_robust
-from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractExchange
+from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractQueue
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -177,7 +177,9 @@ class MessageConsumer:
 
             # Get retry count from headers
             headers = message.headers or {}
-            retry_count = headers.get("x-death", [{}])[0].get("count", 0) if headers.get("x-death") else 0
+            retry_count = (
+                headers.get("x-death", [{}])[0].get("count", 0) if headers.get("x-death") else 0
+            )
 
             # Add metadata to message
             body["_meta"] = {
@@ -208,6 +210,7 @@ class MessageConsumer:
         except Exception as e:
             # Avoid recursive logging errors - just print the exception type
             import traceback
+
             print(f"ERROR in {self.queue_name}: {type(e).__name__}: {str(e)[:100]}")
             traceback.print_exc()
 
@@ -221,7 +224,9 @@ class MessageConsumer:
 
             # Check retry count
             headers = message.headers or {}
-            retry_count = headers.get("x-death", [{}])[0].get("count", 0) if headers.get("x-death") else 0
+            retry_count = (
+                headers.get("x-death", [{}])[0].get("count", 0) if headers.get("x-death") else 0
+            )
 
             if retry_count >= self.max_retry_attempts:
                 logger.warning(
@@ -457,8 +462,7 @@ class BatchConsumer(MessageConsumer):
                     # Check if batch is ready
                     should_process = (
                         len(self._message_buffer) >= self.batch_size
-                        or (datetime.utcnow() - self._last_process_time).total_seconds()
-                        * 1000
+                        or (datetime.utcnow() - self._last_process_time).total_seconds() * 1000
                         >= self.batch_timeout_ms
                     )
 
@@ -487,9 +491,7 @@ class BatchConsumer(MessageConsumer):
         try:
             await callback(self._message_buffer)
 
-            logger.debug(
-                f"Batch processed successfully (batch_size: {len(self._message_buffer)})"
-            )
+            logger.debug(f"Batch processed successfully (batch_size: {len(self._message_buffer)})")
 
         except Exception as e:
             logger.error(f"Error processing batch: {e}")

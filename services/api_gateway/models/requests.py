@@ -23,10 +23,10 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # =============================================================================
 # Base Request Models
 # =============================================================================
+
 
 class BaseRequest(BaseModel):
     """Base model for all requests."""
@@ -42,6 +42,7 @@ class BaseRequest(BaseModel):
 # =============================================================================
 # Alert Request Models
 # =============================================================================
+
 
 class AlertFilterRequest(BaseRequest):
     """
@@ -164,6 +165,7 @@ class AlertCreateRequest(BaseRequest):
 # Analytics Request Models
 # =============================================================================
 
+
 class AnalyticsQueryRequest(BaseRequest):
     """
     Request model for analytics queries.
@@ -211,6 +213,7 @@ class DashboardStatsRequest(BaseRequest):
 # Triage Request Models
 # =============================================================================
 
+
 class TriageReviewRequest(BaseRequest):
     """
     Request model for submitting triage review.
@@ -233,6 +236,7 @@ class TriageReviewRequest(BaseRequest):
 # =============================================================================
 # Authentication Request Models
 # =============================================================================
+
 
 class LoginRequest(BaseRequest):
     """
@@ -261,6 +265,7 @@ class TokenRefreshRequest(BaseRequest):
 # =============================================================================
 # User Request Models
 # =============================================================================
+
 
 class UserCreateRequest(BaseRequest):
     """

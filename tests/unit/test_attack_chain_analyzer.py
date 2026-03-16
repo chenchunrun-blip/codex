@@ -14,8 +14,8 @@
 
 """Unit tests for the Attack Chain Analyzer service."""
 
-import sys
 import os
+import sys
 
 import pytest
 
@@ -27,10 +27,10 @@ from attack_chain_analyzer.main import (
     KILL_CHAIN_STAGES,
     KILL_CHAIN_TRANSITIONS,
     MITRE_TECHNIQUES,
+    _add_ioc_technique,
     classify_kill_chain_stage,
     extract_ttps,
     predict_next_steps,
-    _add_ioc_technique,
 )
 
 
@@ -67,7 +67,11 @@ class TestKillChainClassification:
             alert_type="malware",
             description="Malware detected: trojan installed on workstation",
         )
-        assert result["primary_stage"] in ("installation", "command_and_control", "actions_on_objectives")
+        assert result["primary_stage"] in (
+            "installation",
+            "command_and_control",
+            "actions_on_objectives",
+        )
         assert 0 <= result["confidence"] <= 1.0
 
     def test_phishing_classification(self):
@@ -123,8 +127,16 @@ class TestKillChainClassification:
 
     def test_classification_returns_required_fields(self):
         result = classify_kill_chain_stage(alert_type="malware", description="Test")
-        for field in ("primary_stage", "stage_name", "stage_order", "stage_description",
-                      "confidence", "secondary_stages", "stage_scores", "reasoning"):
+        for field in (
+            "primary_stage",
+            "stage_name",
+            "stage_order",
+            "stage_description",
+            "confidence",
+            "secondary_stages",
+            "stage_scores",
+            "reasoning",
+        ):
             assert field in result
 
     def test_empty_description_handled(self):
@@ -176,16 +188,20 @@ class TestTTPExtraction:
 
     def test_file_hash_ioc_adds_techniques(self):
         result = extract_ttps(
-            alert_type="anomaly", description="Suspicious file",
-            severity="medium", file_hash="abc123",
+            alert_type="anomaly",
+            description="Suspicious file",
+            severity="medium",
+            file_hash="abc123",
         )
         technique_ids = [t["technique_id"] for t in result["techniques"]]
         assert "T1204" in technique_ids or "T1105" in technique_ids
 
     def test_url_ioc_adds_techniques(self):
         result = extract_ttps(
-            alert_type="anomaly", description="Connection to suspicious URL",
-            severity="medium", url="http://malicious.com/payload",
+            alert_type="anomaly",
+            description="Connection to suspicious URL",
+            severity="medium",
+            url="http://malicious.com/payload",
         )
         technique_ids = [t["technique_id"] for t in result["techniques"]]
         assert "T1071" in technique_ids
@@ -205,7 +221,8 @@ class TestTTPExtraction:
         result = extract_ttps(
             alert_type="malware",
             description="Malware with backdoor persistence",
-            severity="high", file_hash="abc123",
+            severity="high",
+            file_hash="abc123",
         )
         ids = [t["technique_id"] for t in result["techniques"]]
         assert len(ids) == len(set(ids))

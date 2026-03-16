@@ -1,15 +1,15 @@
 """Unit tests for Asset Enricher service - criticality, vulnerability, patch, and API."""
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Criticality Evaluation
 # ---------------------------------------------------------------------------
+
 
 class TestCriticalityEvaluation:
     """Test asset criticality evaluation logic."""
@@ -91,6 +91,7 @@ class TestCriticalityEvaluation:
 # Vulnerability Score Calculation
 # ---------------------------------------------------------------------------
 
+
 class TestVulnerabilityScore:
     """Test vulnerability score calculation logic."""
 
@@ -117,12 +118,14 @@ class TestVulnerabilityScore:
         """Mixed vulnerability counts should be weighted correctly."""
         from services.asset_enricher.main import calculate_vulnerability_score
 
-        result = calculate_vulnerability_score({
-            "critical": 2,  # 20
-            "high": 3,      # 15
-            "medium": 4,    # 8
-            "low": 10,      # 5
-        })
+        result = calculate_vulnerability_score(
+            {
+                "critical": 2,  # 20
+                "high": 3,  # 15
+                "medium": 4,  # 8
+                "low": 10,  # 5
+            }
+        )
         expected_score = 20.0 + 15.0 + 8.0 + 5.0  # 48.0
         assert result["vulnerability_score"] == expected_score
         assert result["total_vulnerabilities"] == 19
@@ -171,12 +174,14 @@ class TestVulnerabilityScore:
         """Result should include vulnerability breakdown by severity."""
         from services.asset_enricher.main import calculate_vulnerability_score
 
-        result = calculate_vulnerability_score({
-            "critical": 1,
-            "high": 2,
-            "medium": 3,
-            "low": 4,
-        })
+        result = calculate_vulnerability_score(
+            {
+                "critical": 1,
+                "high": 2,
+                "medium": 3,
+                "low": 4,
+            }
+        )
         assert result["breakdown"]["critical"] == 1
         assert result["breakdown"]["high"] == 2
         assert result["breakdown"]["medium"] == 3
@@ -186,6 +191,7 @@ class TestVulnerabilityScore:
 # ---------------------------------------------------------------------------
 # Patch Status Assessment
 # ---------------------------------------------------------------------------
+
 
 class TestPatchStatus:
     """Test patch status assessment logic."""
@@ -277,6 +283,7 @@ class TestPatchStatus:
 # Asset Enrichment Pipeline
 # ---------------------------------------------------------------------------
 
+
 class TestAssetEnrichmentPipeline:
     """Test the enrich_alert_with_asset orchestration function."""
 
@@ -320,14 +327,17 @@ class TestAssetEnrichmentPipeline:
         """Enrichment should provide defaults when asset is not found."""
         from services.asset_enricher.main import enrich_alert_with_asset
 
-        with patch(
-            "services.asset_enricher.main.lookup_asset_by_id",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "services.asset_enricher.main.lookup_asset_by_ip",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "services.asset_enricher.main.lookup_asset_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.asset_enricher.main.lookup_asset_by_ip",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             result = await enrich_alert_with_asset(
                 {"asset_id": "MISSING", "target_ip": "10.0.0.1", "source_ip": "1.2.3.4"},
@@ -351,15 +361,18 @@ class TestAssetEnrichmentPipeline:
             "attributes": {},
         }
 
-        with patch(
-            "services.asset_enricher.main.lookup_asset_by_id",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "services.asset_enricher.main.lookup_asset_by_ip",
-            new_callable=AsyncMock,
-            return_value=mock_asset,
-        ) as mock_ip_lookup:
+        with (
+            patch(
+                "services.asset_enricher.main.lookup_asset_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.asset_enricher.main.lookup_asset_by_ip",
+                new_callable=AsyncMock,
+                return_value=mock_asset,
+            ) as mock_ip_lookup,
+        ):
             result = await enrich_alert_with_asset(
                 {"asset_id": "MISSING", "target_ip": "10.0.0.99"},
                 {},
@@ -373,6 +386,7 @@ class TestAssetEnrichmentPipeline:
 # ---------------------------------------------------------------------------
 # Cache Logic
 # ---------------------------------------------------------------------------
+
 
 class TestAssetCache:
     """Test in-memory asset cache behavior."""
@@ -417,18 +431,18 @@ class TestAssetCache:
 # API Endpoint Tests
 # ---------------------------------------------------------------------------
 
+
 class TestAssetEnricherAPI:
     """Test Asset Enricher FastAPI endpoints."""
 
     @pytest.mark.asyncio
     async def test_health_endpoint(self):
         """Health endpoint should return healthy status."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        from services.asset_enricher.main import app
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -440,12 +454,11 @@ class TestAssetEnricherAPI:
     @pytest.mark.asyncio
     async def test_metrics_endpoint(self):
         """Metrics endpoint should return service metrics."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        from services.asset_enricher.main import app
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/metrics")
 
         assert response.status_code == 200
@@ -458,8 +471,9 @@ class TestAssetEnricherAPI:
     @pytest.mark.asyncio
     async def test_get_asset_found(self):
         """GET /api/v1/assets/{asset_id} should return asset when found."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
+
+        from services.asset_enricher.main import app
 
         mock_asset = {
             "asset_id": "ASSET-API-001",
@@ -487,8 +501,9 @@ class TestAssetEnricherAPI:
     @pytest.mark.asyncio
     async def test_get_asset_not_found(self):
         """GET /api/v1/assets/{asset_id} should return 404 when not found."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
+
+        from services.asset_enricher.main import app
 
         with patch(
             "services.asset_enricher.main.lookup_asset_by_id",
@@ -505,8 +520,9 @@ class TestAssetEnricherAPI:
     @pytest.mark.asyncio
     async def test_get_asset_vulnerabilities(self):
         """GET /api/v1/assets/{id}/vulnerabilities should return assessment."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
+
+        from services.asset_enricher.main import app
 
         mock_asset = {
             "asset_id": "ASSET-VULN-001",
@@ -524,9 +540,7 @@ class TestAssetEnricherAPI:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(
-                    "/api/v1/assets/ASSET-VULN-001/vulnerabilities"
-                )
+                response = await client.get("/api/v1/assets/ASSET-VULN-001/vulnerabilities")
 
         assert response.status_code == 200
         data = response.json()
@@ -538,8 +552,9 @@ class TestAssetEnricherAPI:
     @pytest.mark.asyncio
     async def test_get_vulnerabilities_not_found(self):
         """GET /api/v1/assets/{id}/vulnerabilities returns 404 when asset missing."""
-        from services.asset_enricher.main import app
         from httpx import ASGITransport, AsyncClient
+
+        from services.asset_enricher.main import app
 
         with patch(
             "services.asset_enricher.main.lookup_asset_by_id",
@@ -549,8 +564,6 @@ class TestAssetEnricherAPI:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(
-                    "/api/v1/assets/MISSING/vulnerabilities"
-                )
+                response = await client.get("/api/v1/assets/MISSING/vulnerabilities")
 
         assert response.status_code == 404

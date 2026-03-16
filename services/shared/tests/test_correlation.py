@@ -17,7 +17,6 @@
 from datetime import datetime, timedelta
 
 import pytest
-
 from shared.correlation import (
     ALERT_TYPE_TO_STAGE,
     AttackChain,
@@ -55,6 +54,7 @@ def _alert(
 # AttackChain data class
 # ---------------------------------------------------------------------------
 
+
 class TestAttackChain:
     def test_add_stage(self):
         chain = AttackChain("c1", "test")
@@ -75,6 +75,7 @@ class TestAttackChain:
 # ---------------------------------------------------------------------------
 # Attack chain detection
 # ---------------------------------------------------------------------------
+
 
 class TestDetectAttackChains:
     def test_initial_access_to_exfil(self):
@@ -119,6 +120,7 @@ class TestDetectAttackChains:
 # Root cause analysis
 # ---------------------------------------------------------------------------
 
+
 class TestFindRootCause:
     def test_finds_phishing_root_cause(self):
         current = _alert("a3", "data_exfiltration", source_ip="10.0.0.1")
@@ -142,8 +144,14 @@ class TestFindRootCause:
     def test_no_root_cause_no_ip_overlap(self):
         current = _alert("a2", "malware", source_ip="10.0.0.1")
         recent = [
-            _alert("a1", "phishing", severity="critical", source_ip="192.168.1.1",
-                   target_ip="192.168.1.2", minutes_ago=30),
+            _alert(
+                "a1",
+                "phishing",
+                severity="critical",
+                source_ip="192.168.1.1",
+                target_ip="192.168.1.2",
+                minutes_ago=30,
+            ),
         ]
         result = CorrelationEngine.find_root_cause(current, recent)
         assert result is None
@@ -152,6 +160,7 @@ class TestFindRootCause:
 # ---------------------------------------------------------------------------
 # Threat actor profiling
 # ---------------------------------------------------------------------------
+
 
 class TestProfileThreatActor:
     def test_data_theft_motive(self):
@@ -190,13 +199,26 @@ class TestProfileThreatActor:
 # Impact analysis
 # ---------------------------------------------------------------------------
 
+
 class TestAnalyzeImpact:
     def test_blast_radius(self):
         alerts = [
-            _alert("a1", "malware", source_ip="10.0.0.1", target_ip="10.0.0.2",
-                   asset_id="srv-01", user_id="user1"),
-            _alert("a2", "lateral_movement", source_ip="10.0.0.2", target_ip="10.0.0.3",
-                   asset_id="srv-02", user_id="user2"),
+            _alert(
+                "a1",
+                "malware",
+                source_ip="10.0.0.1",
+                target_ip="10.0.0.2",
+                asset_id="srv-01",
+                user_id="user1",
+            ),
+            _alert(
+                "a2",
+                "lateral_movement",
+                source_ip="10.0.0.2",
+                target_ip="10.0.0.3",
+                asset_id="srv-02",
+                user_id="user2",
+            ),
         ]
         impact = CorrelationEngine.analyze_impact(alerts)
         assert impact["ip_count"] == 3
@@ -208,6 +230,7 @@ class TestAnalyzeImpact:
 # ---------------------------------------------------------------------------
 # Full correlation
 # ---------------------------------------------------------------------------
+
 
 class TestCorrelate:
     def test_correlate_returns_all_sections(self):
@@ -227,6 +250,7 @@ class TestCorrelate:
 # ---------------------------------------------------------------------------
 # ALERT_TYPE_TO_STAGE mapping
 # ---------------------------------------------------------------------------
+
 
 class TestAlertTypeToStage:
     def test_known_types_mapped(self):

@@ -41,6 +41,7 @@ AUTOMATION_URL = os.getenv(
 # Request / Response Helpers
 # =============================================================================
 
+
 class ExecutePlaybookRequest(BaseModel):
     """Request body for executing a playbook."""
 
@@ -116,6 +117,7 @@ async def _proxy_request(
 # Execute Playbook
 # =============================================================================
 
+
 @router.post(
     "/automation/playbooks/{playbook_id}/execute",
     summary="Execute Playbook",
@@ -146,6 +148,7 @@ async def execute_playbook(
 # =============================================================================
 # Get Execution Status
 # =============================================================================
+
 
 @router.get(
     "/automation/executions/{execution_id}",

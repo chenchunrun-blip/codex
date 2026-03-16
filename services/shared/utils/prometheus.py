@@ -83,9 +83,7 @@ notification_sent_total = Counter(
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """FastAPI middleware that auto-tracks request count and latency."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         method = request.method
         endpoint = request.url.path
 
@@ -101,9 +99,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         finally:
             elapsed = time.monotonic() - start_time
             request_count.labels(method=method, endpoint=endpoint, status=status).inc()
-            request_latency_seconds.labels(method=method, endpoint=endpoint).observe(
-                elapsed
-            )
+            request_latency_seconds.labels(method=method, endpoint=endpoint).observe(elapsed)
             active_connections.dec()
 
         return response

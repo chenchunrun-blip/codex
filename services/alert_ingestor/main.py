@@ -31,10 +31,16 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
-from shared.database import DatabaseManager, get_database_manager, init_database, close_database
+from shared.database import DatabaseManager, close_database, get_database_manager, init_database
+from shared.deduplication import AlertDeduplicator
 from shared.errors import ValidationError
 from shared.messaging import MessagePublisher
+from shared.metrics import (
+    ALERTS_DEDUPLICATED,
+    ALERTS_INGESTED,
+    DEDUP_CHECKS,
+    MetricsCollector,
+)
 from shared.models import (
     AlertBatch,
     AlertType,
@@ -44,18 +50,12 @@ from shared.models import (
     Severity,
     SuccessResponse,
 )
-from shared.deduplication import AlertDeduplicator
-from shared.metrics import (
-    ALERTS_DEDUPLICATED,
-    ALERTS_INGESTED,
-    DEDUP_CHECKS,
-    MetricsCollector,
-)
 from shared.utils import Config, get_logger
 from shared.utils.prometheus import setup_prometheus
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from sqlalchemy import text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -135,6 +135,7 @@ async def lifespan(app: FastAPI):
         if redis_url:
             try:
                 import redis.asyncio as aioredis
+
                 redis_client = aioredis.from_url(redis_url, decode_responses=True)
                 await redis_client.ping()
                 logger.info("✓ Redis connected for deduplication")
@@ -211,7 +212,9 @@ async def health_check():
             "checks": {
                 "database": db_health,
                 "message_queue": "connected" if message_publisher else "disconnected",
-                "deduplication": alert_deduplicator.get_stats() if alert_deduplicator else "disabled",
+                "deduplication": (
+                    alert_deduplicator.get_stats() if alert_deduplicator else "disabled"
+                ),
                 "metrics": metrics.to_dict(),
             },
         }
@@ -306,7 +309,7 @@ async def ingest_alert(request: Request, alert: SecurityAlert):
                     "url": alert.url,
                     "asset_id": alert.asset_id,
                     "user_name": alert.user_id,
-                }
+                },
             )
             await session.commit()
 
@@ -481,34 +484,33 @@ async def get_alert_status(alert_id: str):
 
 # RFC 5424 severity mapping to our Severity enum
 _SYSLOG_SEVERITY_MAP: Dict[int, Severity] = {
-    0: Severity.CRITICAL,   # Emergency
-    1: Severity.CRITICAL,   # Alert
-    2: Severity.CRITICAL,   # Critical
-    3: Severity.HIGH,       # Error
-    4: Severity.HIGH,       # Warning
-    5: Severity.MEDIUM,     # Notice
-    6: Severity.LOW,        # Informational
-    7: Severity.INFO,       # Debug
+    0: Severity.CRITICAL,  # Emergency
+    1: Severity.CRITICAL,  # Alert
+    2: Severity.CRITICAL,  # Critical
+    3: Severity.HIGH,  # Error
+    4: Severity.HIGH,  # Warning
+    5: Severity.MEDIUM,  # Notice
+    6: Severity.LOW,  # Informational
+    7: Severity.INFO,  # Debug
 }
 
 # RFC 5424 structured data pattern
 _RFC5424_PATTERN = re.compile(
-    r"^<(?P<priority>\d{1,3})>"           # PRI
-    r"(?P<version>\d{1,2})\s+"            # VERSION
-    r"(?P<timestamp>\S+)\s+"              # TIMESTAMP
-    r"(?P<hostname>\S+)\s+"               # HOSTNAME
-    r"(?P<appname>\S+)\s+"                # APP-NAME
-    r"(?P<procid>\S+)\s+"                 # PROCID
-    r"(?P<msgid>\S+)\s+"                  # MSGID
+    r"^<(?P<priority>\d{1,3})>"  # PRI
+    r"(?P<version>\d{1,2})\s+"  # VERSION
+    r"(?P<timestamp>\S+)\s+"  # TIMESTAMP
+    r"(?P<hostname>\S+)\s+"  # HOSTNAME
+    r"(?P<appname>\S+)\s+"  # APP-NAME
+    r"(?P<procid>\S+)\s+"  # PROCID
+    r"(?P<msgid>\S+)\s+"  # MSGID
     r"(?P<structured_data>-|\[.+?\])\s*"  # STRUCTURED-DATA
-    r"(?P<msg>.*)",                        # MSG
+    r"(?P<msg>.*)",  # MSG
     re.DOTALL,
 )
 
 # Fallback BSD-style syslog (RFC 3164)
 _RFC3164_PATTERN = re.compile(
-    r"^<(?P<priority>\d{1,3})>"
-    r"(?P<msg>.*)",
+    r"^<(?P<priority>\d{1,3})>" r"(?P<msg>.*)",
     re.DOTALL,
 )
 
@@ -805,9 +807,7 @@ async def start_syslog_listeners() -> tuple:
         lambda: _SyslogUDPProtocol(),
         local_addr=(syslog_host, syslog_port),
     )
-    logger.info(
-        f"Syslog UDP listener started on {syslog_host}:{syslog_port}"
-    )
+    logger.info(f"Syslog UDP listener started on {syslog_host}:{syslog_port}")
 
     # TCP listener
     tcp_server = await asyncio.start_server(
@@ -815,9 +815,7 @@ async def start_syslog_listeners() -> tuple:
         host=syslog_host,
         port=syslog_port,
     )
-    logger.info(
-        f"Syslog TCP listener started on {syslog_host}:{syslog_port}"
-    )
+    logger.info(f"Syslog TCP listener started on {syslog_host}:{syslog_port}")
 
     return udp_transport, tcp_server
 
@@ -839,13 +837,9 @@ async def _extended_lifespan(app: FastAPI):
     async with _original_lifespan(app):
         # Start syslog listeners after core services are up
         try:
-            _syslog_udp_transport, _syslog_tcp_server = (
-                await start_syslog_listeners()
-            )
+            _syslog_udp_transport, _syslog_tcp_server = await start_syslog_listeners()
         except Exception as e:
-            logger.warning(
-                f"Failed to start syslog listeners (non-fatal): {e}"
-            )
+            logger.warning(f"Failed to start syslog listeners (non-fatal): {e}")
 
         yield
 
@@ -865,6 +859,7 @@ app.router.lifespan_context = _extended_lifespan
 # ---------------------------------------------------------------------------
 # WebSocket Alert Ingestion
 # ---------------------------------------------------------------------------
+
 
 @app.websocket("/ws/alerts")
 async def websocket_alert_endpoint(websocket: WebSocket) -> None:
@@ -887,9 +882,7 @@ async def websocket_alert_endpoint(websocket: WebSocket) -> None:
         }
     """
     await websocket.accept()
-    client_host = (
-        websocket.client.host if websocket.client else "unknown"
-    )
+    client_host = websocket.client.host if websocket.client else "unknown"
     logger.info(
         "WebSocket alert connection opened",
         extra={"client_ip": client_host},
@@ -902,27 +895,33 @@ async def websocket_alert_endpoint(websocket: WebSocket) -> None:
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError as e:
-                await websocket.send_json({
-                    "status": "error",
-                    "message": f"Invalid JSON: {e}",
-                })
+                await websocket.send_json(
+                    {
+                        "status": "error",
+                        "message": f"Invalid JSON: {e}",
+                    }
+                )
                 continue
 
             # Validate and construct SecurityAlert
             try:
                 alert = SecurityAlert(**data)
             except Exception as e:
-                await websocket.send_json({
-                    "status": "error",
-                    "message": f"Validation error: {e}",
-                })
+                await websocket.send_json(
+                    {
+                        "status": "error",
+                        "message": f"Validation error: {e}",
+                    }
+                )
                 continue
 
             if not alert.alert_id:
-                await websocket.send_json({
-                    "status": "error",
-                    "message": "alert_id is required",
-                })
+                await websocket.send_json(
+                    {
+                        "status": "error",
+                        "message": "alert_id is required",
+                    }
+                )
                 continue
 
             ingestion_id = str(uuid.uuid4())
@@ -940,12 +939,14 @@ async def websocket_alert_endpoint(websocket: WebSocket) -> None:
                             "client_ip": client_host,
                         },
                     )
-                    await websocket.send_json({
-                        "status": "duplicate",
-                        "ingestion_id": ingestion_id,
-                        "alert_id": alert.alert_id,
-                        "message": "Alert identified as duplicate and skipped",
-                    })
+                    await websocket.send_json(
+                        {
+                            "status": "duplicate",
+                            "ingestion_id": ingestion_id,
+                            "alert_id": alert.alert_id,
+                            "message": "Alert identified as duplicate and skipped",
+                        }
+                    )
                     continue
 
             # Persist to database
@@ -978,12 +979,14 @@ async def websocket_alert_endpoint(websocket: WebSocket) -> None:
                     f"Failed to persist WebSocket alert: {e}",
                     exc_info=True,
                 )
-                await websocket.send_json({
-                    "status": "error",
-                    "ingestion_id": ingestion_id,
-                    "alert_id": alert.alert_id,
-                    "message": f"Database error: {e}",
-                })
+                await websocket.send_json(
+                    {
+                        "status": "error",
+                        "ingestion_id": ingestion_id,
+                        "alert_id": alert.alert_id,
+                        "message": f"Database error: {e}",
+                    }
+                )
                 continue
 
             # Publish to message queue
@@ -1009,12 +1012,14 @@ async def websocket_alert_endpoint(websocket: WebSocket) -> None:
                 },
             )
 
-            await websocket.send_json({
-                "status": "queued",
-                "ingestion_id": ingestion_id,
-                "alert_id": alert.alert_id,
-                "message": "Alert queued for processing",
-            })
+            await websocket.send_json(
+                {
+                    "status": "queued",
+                    "ingestion_id": ingestion_id,
+                    "alert_id": alert.alert_id,
+                    "message": "Alert queued for processing",
+                }
+            )
 
     except WebSocketDisconnect:
         logger.info(

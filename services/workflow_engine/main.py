@@ -47,11 +47,20 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from shared.correlation import CorrelationEngine
 from shared.database import DatabaseManager, get_database_manager
 from shared.database.models import AuditLog
 from shared.database.repositories.workflow_repository import WorkflowRepository
 from shared.errors import WorkflowError
 from shared.messaging import MessageConsumer, MessagePublisher
+from shared.metrics import (
+    ATTACK_CHAINS_DETECTED,
+    CORRELATIONS_PERFORMED,
+    INCIDENT_RESPONSES_TRIGGERED,
+    WORKFLOWS_COMPLETED,
+    WORKFLOWS_STARTED,
+    MetricsCollector,
+)
 from shared.models import (
     HumanTask,
     ResponseMeta,
@@ -61,15 +70,6 @@ from shared.models import (
     WorkflowDefinition,
     WorkflowExecution,
     WorkflowStatus,
-)
-from shared.correlation import CorrelationEngine
-from shared.metrics import (
-    ATTACK_CHAINS_DETECTED,
-    CORRELATIONS_PERFORMED,
-    INCIDENT_RESPONSES_TRIGGERED,
-    WORKFLOWS_COMPLETED,
-    WORKFLOWS_STARTED,
-    MetricsCollector,
 )
 from shared.utils import Config, get_logger
 from shared.utils.prometheus import setup_prometheus
@@ -106,7 +106,12 @@ _resume_events: Dict[str, asyncio.Event] = {}
 
 VALID_WORKFLOW_TRANSITIONS: Dict[str, List[str]] = {
     WorkflowStatus.PENDING: [WorkflowStatus.RUNNING, WorkflowStatus.CANCELLED],
-    WorkflowStatus.RUNNING: [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED, WorkflowStatus.TIMED_OUT],
+    WorkflowStatus.RUNNING: [
+        WorkflowStatus.COMPLETED,
+        WorkflowStatus.FAILED,
+        WorkflowStatus.CANCELLED,
+        WorkflowStatus.TIMED_OUT,
+    ],
     WorkflowStatus.COMPLETED: [],  # terminal
     WorkflowStatus.FAILED: [WorkflowStatus.PENDING],  # allow retry
     WorkflowStatus.CANCELLED: [],  # terminal
@@ -114,7 +119,12 @@ VALID_WORKFLOW_TRANSITIONS: Dict[str, List[str]] = {
 }
 
 VALID_TASK_TRANSITIONS: Dict[str, List[str]] = {
-    TaskStatus.PENDING: [TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.SKIPPED, TaskStatus.CANCELLED],
+    TaskStatus.PENDING: [
+        TaskStatus.ASSIGNED,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.SKIPPED,
+        TaskStatus.CANCELLED,
+    ],
     TaskStatus.ASSIGNED: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
     TaskStatus.IN_PROGRESS: [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED],
     TaskStatus.COMPLETED: [],  # terminal
@@ -186,7 +196,12 @@ async def transition_workflow_status(
     old_status = execution.status
     validate_workflow_transition(old_status, new_status)
     execution.status = new_status
-    if new_status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED, WorkflowStatus.TIMED_OUT):
+    if new_status in (
+        WorkflowStatus.COMPLETED,
+        WorkflowStatus.FAILED,
+        WorkflowStatus.CANCELLED,
+        WorkflowStatus.TIMED_OUT,
+    ):
         execution.completed_at = datetime.utcnow()
     logger.info(
         f"Workflow {execution.execution_id} transitioned: {old_status.value} -> {new_status.value}",
@@ -248,6 +263,7 @@ pending_approvals: Dict[str, Dict[str, Any]] = {}
 # ---------------------------------------------------------------------------
 # API request models
 # ---------------------------------------------------------------------------
+
 
 class WorkflowUpdateRequest(BaseModel):
     """Request model for updating a workflow definition."""
@@ -386,6 +402,7 @@ DEFAULT_WORKFLOWS = {
 # Audit logging
 # ---------------------------------------------------------------------------
 
+
 async def audit_log(
     event_type: str,
     action: str,
@@ -442,6 +459,7 @@ async def audit_log(
 # Database persistence helpers
 # ---------------------------------------------------------------------------
 
+
 async def persist_workflow_definition(definition: WorkflowDefinition) -> None:
     """Persist a workflow definition to the database."""
     if not db_manager:
@@ -483,31 +501,23 @@ async def persist_execution(execution: WorkflowExecution) -> None:
             if existing:
                 updates = {
                     "status": execution.status.value,
-                    "steps_execution": execution_step_results.get(
-                        execution.execution_id, {}
-                    ),
+                    "steps_execution": execution_step_results.get(execution.execution_id, {}),
                 }
                 if execution.completed_at:
                     updates["completed_at"] = execution.completed_at
-                    duration = (
-                        execution.completed_at - execution.started_at
-                    ).total_seconds()
+                    duration = (execution.completed_at - execution.started_at).total_seconds()
                     updates["duration_seconds"] = int(duration)
                 if execution.error:
                     updates["error_message"] = execution.error
                 if execution.output:
                     updates["result"] = json.dumps(execution.output)
-                await repo.update_workflow_execution(
-                    execution.execution_id, **updates
-                )
+                await repo.update_workflow_execution(execution.execution_id, **updates)
             else:
                 await repo.create_workflow_execution(
                     execution_id=execution.execution_id,
                     workflow_id=execution.workflow_id,
                     trigger_type="manual",
-                    trigger_reference=execution.input.get(
-                        "alert", execution.input
-                    ).get("alert_id"),
+                    trigger_reference=execution.input.get("alert", execution.input).get("alert_id"),
                 )
     except Exception as e:
         logger.warning(f"Failed to persist execution: {e}")
@@ -540,9 +550,8 @@ async def load_workflow_definitions_from_db() -> None:
 # SLA management
 # ---------------------------------------------------------------------------
 
-def calculate_sla_deadline(
-    priority: str, created_at: datetime
-) -> Dict[str, datetime]:
+
+def calculate_sla_deadline(priority: str, created_at: datetime) -> Dict[str, datetime]:
     """
     Calculate SLA response and resolution deadlines.
 
@@ -577,8 +586,7 @@ async def check_sla_breaches() -> List[Dict[str, Any]]:
         deadlines = calculate_sla_deadline(task.priority.value, task.created_at)
 
         response_breached = (
-            task.status == TaskStatus.ASSIGNED
-            and now > deadlines["response_deadline"]
+            task.status == TaskStatus.ASSIGNED and now > deadlines["response_deadline"]
         )
         resolve_breached = now > deadlines["resolve_deadline"]
 
@@ -591,9 +599,7 @@ async def check_sla_breaches() -> List[Dict[str, Any]]:
                 "assigned_to": task.assigned_to,
                 "breach_type": breach_type,
                 "created_at": task.created_at.isoformat(),
-                "deadline": deadlines[
-                    f"{breach_type}_deadline"
-                ].isoformat(),
+                "deadline": deadlines[f"{breach_type}_deadline"].isoformat(),
                 "overdue_minutes": int(
                     (now - deadlines[f"{breach_type}_deadline"]).total_seconds() / 60
                 ),
@@ -607,9 +613,7 @@ async def check_sla_breaches() -> List[Dict[str, Any]]:
     return breaches
 
 
-async def _escalate_task(
-    task: HumanTask, breach_info: Dict[str, Any]
-) -> None:
+async def _escalate_task(task: HumanTask, breach_info: Dict[str, Any]) -> None:
     """Escalate a task that has breached its SLA."""
     logger.warning(
         f"SLA breach for task {task.task_id}: "
@@ -626,9 +630,7 @@ async def _escalate_task(
     if new_assignee and new_assignee != task.assigned_to:
         old_assignee = task.assigned_to
         task.assigned_to = new_assignee
-        logger.info(
-            f"Task {task.task_id} re-assigned from {old_assignee} to {new_assignee}"
-        )
+        logger.info(f"Task {task.task_id} re-assigned from {old_assignee} to {new_assignee}")
 
     await send_notification(
         channels=["security-team", "management"],
@@ -659,6 +661,7 @@ async def monitor_sla():
 
 AUTO_CLOSE_HOURS = int(os.getenv("AUTO_CLOSE_HOURS", "24"))
 
+
 async def auto_close_resolved():
     """Auto-close completed/resolved workflows after configured timeout."""
     while True:
@@ -675,7 +678,9 @@ async def auto_close_resolved():
                         logger.debug(f"Auto-cleaned completed execution {exec_id}")
 
             if closed_count > 0:
-                logger.info(f"Auto-cleaned {closed_count} completed executions older than {AUTO_CLOSE_HOURS}h")
+                logger.info(
+                    f"Auto-cleaned {closed_count} completed executions older than {AUTO_CLOSE_HOURS}h"
+                )
 
         except Exception as e:
             logger.error(f"Auto-close task error: {e}", exc_info=True)
@@ -684,6 +689,7 @@ async def auto_close_resolved():
 # ---------------------------------------------------------------------------
 # Smart task assignment
 # ---------------------------------------------------------------------------
+
 
 def _find_best_assignee(
     priority: str,
@@ -707,10 +713,9 @@ def _find_best_assignee(
         Best analyst ID, or 'security-team' as fallback
     """
     candidates = [
-        a for a in ANALYST_POOL
-        if a["available"]
-        and a["active_tasks"] < a["max_tasks"]
-        and a["id"] != exclude
+        a
+        for a in ANALYST_POOL
+        if a["available"] and a["active_tasks"] < a["max_tasks"] and a["id"] != exclude
     ]
 
     if not candidates:
@@ -718,7 +723,11 @@ def _find_best_assignee(
 
     def score(analyst: Dict[str, Any]) -> tuple:
         skill_match = 1 if alert_type.lower() in analyst["skills"] else 0
-        priority_bonus = 1 if priority in ("critical", "high") and "incident_response" in analyst["skills"] else 0
+        priority_bonus = (
+            1
+            if priority in ("critical", "high") and "incident_response" in analyst["skills"]
+            else 0
+        )
         return (skill_match + priority_bonus, -analyst["active_tasks"])
 
     candidates.sort(key=score, reverse=True)
@@ -739,19 +748,15 @@ def _release_analyst(analyst_id: str) -> None:
 # Approval workflow for high-risk automation
 # ---------------------------------------------------------------------------
 
-def requires_approval(
-    playbook_id: str, risk_level: str
-) -> bool:
+
+def requires_approval(playbook_id: str, risk_level: str) -> bool:
     """
     Determine if automation execution requires approval.
 
     High-risk playbooks or critical risk levels require approval.
     """
     high_risk_playbooks = {"malware-response", "incident-containment"}
-    return (
-        playbook_id in high_risk_playbooks
-        and risk_level.upper() in ("CRITICAL", "HIGH")
-    )
+    return playbook_id in high_risk_playbooks and risk_level.upper() in ("CRITICAL", "HIGH")
 
 
 async def request_approval(
@@ -799,10 +804,7 @@ async def request_approval(
         details=approval,
     )
 
-    logger.info(
-        f"Approval requested for playbook {playbook_id} "
-        f"(approval_id={approval_id})"
-    )
+    logger.info(f"Approval requested for playbook {playbook_id} " f"(approval_id={approval_id})")
 
     return approval
 
@@ -833,9 +835,7 @@ def process_approval(
         raise WorkflowError(f"Approval request not found: {approval_id}")
 
     if approval["status"] != "pending":
-        raise WorkflowError(
-            f"Approval already processed: {approval['status']}"
-        )
+        raise WorkflowError(f"Approval already processed: {approval['status']}")
 
     approval["status"] = "approved" if approved else "rejected"
     approval["approved_by"] = approver
@@ -859,8 +859,7 @@ NOTIFICATION_TEMPLATES: Dict[str, str] = {
         "Triggered by: {triggered_by}. Immediate response required."
     ),
     "human_task_created": (
-        "New task assigned: {title}\n"
-        "Priority: {priority}. Execution: {execution_id}."
+        "New task assigned: {title}\n" "Priority: {priority}. Execution: {execution_id}."
     ),
     "workflow_failed": (
         "Workflow {workflow_id} FAILED for alert {alert_id}.\n"
@@ -937,6 +936,7 @@ class _SafeFormatDict(dict):
 # Decision expression evaluator
 # ---------------------------------------------------------------------------
 
+
 def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
     """
     Evaluate a simple condition expression against the execution context.
@@ -957,9 +957,7 @@ def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
 
     # Handle common patterns directly
     # Pattern: "var in ('A', 'B')"
-    in_match = re.match(
-        r"^\s*(\w+)\s+in\s+\((.+)\)\s*$", condition
-    )
+    in_match = re.match(r"^\s*(\w+)\s+in\s+\((.+)\)\s*$", condition)
     if in_match:
         var_name = in_match.group(1)
         values_str = in_match.group(2)
@@ -968,9 +966,7 @@ def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
         return var_value in allowed
 
     # Pattern: "var == 'value'" or "var != 'value'"
-    eq_match = re.match(
-        r"^\s*(\w+)\s*(==|!=)\s*['\"](.+?)['\"]\s*$", condition
-    )
+    eq_match = re.match(r"^\s*(\w+)\s*(==|!=)\s*['\"](.+?)['\"]\s*$", condition)
     if eq_match:
         var_name = eq_match.group(1)
         operator = eq_match.group(2)
@@ -982,9 +978,7 @@ def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
             return var_value.upper() != target.upper()
 
     # Pattern: "var > number" / "var >= number"
-    num_match = re.match(
-        r"^\s*(\w+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?)\s*$", condition
-    )
+    num_match = re.match(r"^\s*(\w+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?)\s*$", condition)
     if num_match:
         var_name = num_match.group(1)
         operator = num_match.group(2)
@@ -993,8 +987,12 @@ def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
             var_value = float(ctx.get(var_name, 0))
         except (ValueError, TypeError):
             return False
-        ops = {">=": var_value >= threshold, "<=": var_value <= threshold,
-               ">": var_value > threshold, "<": var_value < threshold}
+        ops = {
+            ">=": var_value >= threshold,
+            "<=": var_value <= threshold,
+            ">": var_value > threshold,
+            "<": var_value < threshold,
+        }
         return ops[operator]
 
     # Legacy / fallback: simple risk_level check
@@ -1088,6 +1086,7 @@ async def trigger_automation(
 # Step execution with retry
 # ---------------------------------------------------------------------------
 
+
 async def execute_step_with_retry(
     execution: WorkflowExecution,
     step: Dict[str, Any],
@@ -1167,9 +1166,7 @@ async def execute_workflow_step(
         return {"status": "failed", "error": str(e)}
 
 
-async def _execute_activity(
-    execution: WorkflowExecution, step: Dict[str, Any]
-) -> Dict[str, Any]:
+async def _execute_activity(execution: WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
     """Execute an activity step (service call or built-in)."""
     service = step.get("service")
 
@@ -1215,9 +1212,7 @@ async def _execute_activity(
     return {"status": "completed"}
 
 
-async def _execute_human_task(
-    execution: WorkflowExecution, step: Dict[str, Any]
-) -> Dict[str, Any]:
+async def _execute_human_task(execution: WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
     """Create a human task and prepare for workflow pause."""
     priority_str = step.get("priority", "medium").lower()
     priority_map = {
@@ -1296,16 +1291,13 @@ async def _execute_human_task(
     }
 
 
-def _execute_decision(
-    execution: WorkflowExecution, step: Dict[str, Any]
-) -> Dict[str, Any]:
+def _execute_decision(execution: WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
     """Evaluate a decision condition and determine branching."""
     condition = step.get("condition", "")
     decision_result = evaluate_condition(condition, execution.input)
 
     logger.info(
-        f"Decision '{step.get('name')}' evaluated: {decision_result} "
-        f"(condition: {condition})"
+        f"Decision '{step.get('name')}' evaluated: {decision_result} " f"(condition: {condition})"
     )
 
     return {
@@ -1341,6 +1333,7 @@ async def _execute_notification(
 # ---------------------------------------------------------------------------
 # Workflow execution orchestrator
 # ---------------------------------------------------------------------------
+
 
 async def execute_workflow(execution: WorkflowExecution):
     """
@@ -1427,7 +1420,9 @@ async def execute_workflow(execution: WorkflowExecution):
                     await asyncio.wait_for(event.wait(), timeout=timeout)
                 except asyncio.TimeoutError:
                     execution.status = WorkflowStatus.TIMED_OUT
-                    execution.error = f"Workflow timed out waiting for human task at step {step_name}"
+                    execution.error = (
+                        f"Workflow timed out waiting for human task at step {step_name}"
+                    )
                     execution.completed_at = datetime.utcnow()
                     break
                 finally:
@@ -1441,9 +1436,7 @@ async def execute_workflow(execution: WorkflowExecution):
                 # Decision branching: jump to a specific step
                 goto_target = result["goto"]
                 # Find the target step index
-                target_indices = [
-                    i for i, s in enumerate(steps) if s.get("name") == goto_target
-                ]
+                target_indices = [i for i, s in enumerate(steps) if s.get("name") == goto_target]
                 if target_indices:
                     step_index = target_indices[0]
                     continue  # Don't increment, jump directly
@@ -1472,10 +1465,10 @@ async def execute_workflow(execution: WorkflowExecution):
                 details={
                     "workflow_id": execution.workflow_id,
                     "duration_seconds": (
-                        execution.completed_at - execution.started_at
-                    ).total_seconds()
-                    if execution.completed_at
-                    else None,
+                        (execution.completed_at - execution.started_at).total_seconds()
+                        if execution.completed_at
+                        else None
+                    ),
                 },
             )
 
@@ -1524,9 +1517,7 @@ async def execute_workflow(execution: WorkflowExecution):
             execution_step_results.pop(execution.execution_id, None)
 
 
-async def _notify_workflow_event(
-    execution: WorkflowExecution, template: str
-) -> None:
+async def _notify_workflow_event(execution: WorkflowExecution, template: str) -> None:
     """Send a notification for a workflow lifecycle event."""
     alert = execution.input.get("alert", execution.input)
     try:
@@ -1550,6 +1541,7 @@ async def _notify_workflow_event(
 # ---------------------------------------------------------------------------
 # Human task completion & workflow resume
 # ---------------------------------------------------------------------------
+
 
 def complete_human_task(
     task_id: str,
@@ -1607,6 +1599,7 @@ def complete_human_task(
 # ---------------------------------------------------------------------------
 # Workflow lifecycle
 # ---------------------------------------------------------------------------
+
 
 async def consume_workflow_triggers():
     """Consume workflow trigger messages from queue."""
@@ -1680,9 +1673,7 @@ async def cancel_workflow_execution(execution_id: str) -> WorkflowExecution:
         raise WorkflowError(f"Execution not found: {execution_id}")
 
     if execution.status not in (WorkflowStatus.PENDING, WorkflowStatus.RUNNING):
-        raise WorkflowError(
-            f"Cannot cancel execution in status: {execution.status.value}"
-        )
+        raise WorkflowError(f"Cannot cancel execution in status: {execution.status.value}")
 
     execution.status = WorkflowStatus.CANCELLED
     execution.completed_at = datetime.utcnow()
@@ -1704,6 +1695,7 @@ def get_execution_step_results(execution_id: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Execution monitoring
 # ---------------------------------------------------------------------------
+
 
 async def monitor_executions():
     """Monitor active workflow executions for timeouts."""
@@ -1748,6 +1740,7 @@ async def monitor_executions():
 # ---------------------------------------------------------------------------
 # Correlation helpers
 # ---------------------------------------------------------------------------
+
 
 async def _run_correlation(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """Run correlation analysis on the current alert against recent cache."""
@@ -1800,6 +1793,7 @@ async def _trigger_incident_response(
 # ---------------------------------------------------------------------------
 # Application lifespan
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1873,6 +1867,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # API Endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.post("/api/v1/workflows/definitions", response_model=Dict[str, Any])
 async def create_workflow_definition(definition: WorkflowDefinition):
@@ -1973,7 +1968,8 @@ async def delete_workflow_definition(workflow_id: str):
 
     # Prevent deleting workflows with active executions
     active = [
-        e for e in active_executions.values()
+        e
+        for e in active_executions.values()
         if e.workflow_id == workflow_id
         and e.status in (WorkflowStatus.RUNNING, WorkflowStatus.PENDING)
     ]
@@ -2151,10 +2147,9 @@ async def cancel_execution_api(execution_id: str):
 # Human task endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/v1/tasks", response_model=Dict[str, Any])
-async def list_tasks(
-    status: Optional[str] = None, assignee: Optional[str] = None
-):
+async def list_tasks(status: Optional[str] = None, assignee: Optional[str] = None):
     """List pending human tasks."""
     tasks = list(pending_tasks.values())
 
@@ -2222,6 +2217,7 @@ async def complete_task_api(task_id: str, body: TaskCompleteRequest = None):
 # Approval endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/v1/approvals", response_model=Dict[str, Any])
 async def list_approvals(status: Optional[str] = None):
     """List automation approval requests."""
@@ -2240,9 +2236,7 @@ async def list_approvals(status: Optional[str] = None):
 async def decide_approval(approval_id: str, body: ApprovalRequest):
     """Approve or reject an automation execution."""
     try:
-        approval = process_approval(
-            approval_id, body.approved, body.approver, body.reason
-        )
+        approval = process_approval(approval_id, body.approved, body.approver, body.reason)
 
         await audit_log(
             event_type="automation.approval_decided",
@@ -2295,6 +2289,7 @@ async def decide_approval(approval_id: str, body: ApprovalRequest):
 # SLA endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/v1/sla/breaches", response_model=Dict[str, Any])
 async def get_sla_breaches():
     """Check for current SLA breaches across all pending tasks."""
@@ -2320,6 +2315,7 @@ async def get_sla_config():
 # Audit log endpoint
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/v1/audit-logs", response_model=Dict[str, Any])
 async def get_audit_logs(
     event_type: Optional[str] = None,
@@ -2338,9 +2334,7 @@ async def get_audit_logs(
         from sqlalchemy import select
 
         async with db_manager.get_session() as session:
-            query = select(AuditLog).where(
-                AuditLog.event_category == "workflow"
-            )
+            query = select(AuditLog).where(AuditLog.event_category == "workflow")
             if event_type:
                 query = query.where(AuditLog.event_type == event_type)
             if target_id:
@@ -2379,6 +2373,7 @@ async def get_audit_logs(
 # Analyst pool management endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/v1/analysts", response_model=Dict[str, Any])
 async def list_analysts():
     """List all analysts and their current workload."""
@@ -2392,6 +2387,7 @@ async def list_analysts():
 # ---------------------------------------------------------------------------
 # Correlation endpoint
 # ---------------------------------------------------------------------------
+
 
 @app.post("/api/v1/correlate", response_model=Dict[str, Any])
 async def correlate_alert(alert_data: Dict[str, Any]):
@@ -2441,7 +2437,9 @@ async def health_check():
         },
         "analysts": {
             "total": len(ANALYST_POOL),
-            "available": len([a for a in ANALYST_POOL if a["available"] and a["active_tasks"] < a["max_tasks"]]),
+            "available": len(
+                [a for a in ANALYST_POOL if a["available"] and a["active_tasks"] < a["max_tasks"]]
+            ),
         },
         "correlation": {
             "recent_alerts_cached": len(recent_alerts_cache),

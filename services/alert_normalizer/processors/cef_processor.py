@@ -147,7 +147,9 @@ class CEFProcessor:
                 if cef_message:
                     cef_data = self._parse_cef_string(cef_message)
                     # Merge with additional fields from dict
-                    cef_data.update({k: v for k, v in raw_alert.items() if k not in ["message", "cef_message"]})
+                    cef_data.update(
+                        {k: v for k, v in raw_alert.items() if k not in ["message", "cef_message"]}
+                    )
                 else:
                     cef_data = raw_alert
             else:
@@ -162,9 +164,13 @@ class CEFProcessor:
 
             # Extract network information
             source_ip = self._extract_field(cef_data, ["src", "srcAddress", "src_ip", "source_ip"])
-            target_ip = self._extract_field(cef_data, ["dst", "dstAddress", "dest_ip", "destination_ip"])
+            target_ip = self._extract_field(
+                cef_data, ["dst", "dstAddress", "dest_ip", "destination_ip"]
+            )
             source_port = self._extract_port(cef_data, ["srcPort", "src_port", "source_port"])
-            destination_port = self._extract_port(cef_data, ["dstPort", "destPort", "dst_port", "destination_port"])
+            destination_port = self._extract_port(
+                cef_data, ["dstPort", "destPort", "dst_port", "destination_port"]
+            )
             protocol = self._extract_field(cef_data, ["proto", "protocol"])
 
             # Extract entity references
@@ -174,7 +180,9 @@ class CEFProcessor:
             # Extract threat-specific fields
             file_hash = self._extract_field(cef_data, ["fileHash", "fileHashValue", "file_hash"])
             url = self._extract_field(cef_data, ["request", "url"])
-            process_name = self._extract_field(cef_data, ["requestClientApplication", "process_name"])
+            process_name = self._extract_field(
+                cef_data, ["requestClientApplication", "process_name"]
+            )
 
             # Extract CEF metadata
             source = "cef"
@@ -332,6 +340,7 @@ class CEFProcessor:
 
         # Generate unique ID
         import uuid
+
         return f"CEF-{uuid.uuid4()}"
 
     def _extract_timestamp(self, cef_data: Dict[str, Any]) -> datetime:
@@ -499,8 +508,7 @@ class CEFProcessor:
 
         tlds = [".com", ".org", ".net", ".edu", ".gov", ".mil", ".io", ".co", ".uk"]
         iocs["domains"] = [
-            domain for domain in domain_matches
-            if any(tld in domain.lower() for tld in tlds)
+            domain for domain in domain_matches if any(tld in domain.lower() for tld in tlds)
         ]
 
         # Extract email addresses

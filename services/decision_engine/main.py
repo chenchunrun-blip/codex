@@ -168,6 +168,7 @@ APPROVAL_LEVELS: Dict[str, Dict[str, Any]] = {
 # API Request/Response Models
 # =============================================================================
 
+
 class DecisionRequest(BaseModel):
     """Request model for manual decision evaluation."""
 
@@ -362,10 +363,12 @@ def select_analyst(alert_type: str, priority: str) -> Optional[Dict[str, Any]]:
         # Lower active_tasks = higher availability score
         availability_score = analyst["max_tasks"] - analyst["active_tasks"]
 
-        candidates.append({
-            "analyst": analyst,
-            "score": skill_match * 10 + tier_bonus * 5 + availability_score,
-        })
+        candidates.append(
+            {
+                "analyst": analyst,
+                "score": skill_match * 10 + tier_bonus * 5 + availability_score,
+            }
+        )
 
     if not candidates:
         return None
@@ -385,9 +388,7 @@ def select_analyst(alert_type: str, priority: str) -> Optional[Dict[str, Any]]:
     return selected
 
 
-def calculate_sla_deadline(
-    priority: str, created_at: datetime
-) -> Dict[str, datetime]:
+def calculate_sla_deadline(priority: str, created_at: datetime) -> Dict[str, datetime]:
     """
     Calculate SLA response and resolution deadlines.
 
@@ -525,14 +526,16 @@ async def make_decision(
             "timeout_minutes": approval_config["timeout_minutes"],
         },
         "routing": {
-            "assigned_analyst": {
-                "id": assigned_analyst["id"],
-                "name": assigned_analyst["name"],
-                "team": assigned_analyst["team"],
-            } if assigned_analyst else None,
-            "assignment_reason": _build_assignment_reason(
-                alert_type, priority, assigned_analyst
+            "assigned_analyst": (
+                {
+                    "id": assigned_analyst["id"],
+                    "name": assigned_analyst["name"],
+                    "team": assigned_analyst["team"],
+                }
+                if assigned_analyst
+                else None
             ),
+            "assignment_reason": _build_assignment_reason(alert_type, priority, assigned_analyst),
         },
         "sla": {
             "response_deadline": sla_deadlines["response_deadline"].isoformat(),
@@ -625,35 +628,45 @@ def _determine_actions(
     actions = []
 
     if auto_close:
-        actions.append({
-            "type": "auto_close",
-            "description": "Auto-close low-risk alert with high confidence",
-        })
+        actions.append(
+            {
+                "type": "auto_close",
+                "description": "Auto-close low-risk alert with high confidence",
+            }
+        )
         return actions
 
     if auto_escalate:
-        actions.append({
-            "type": "escalate",
-            "description": f"Auto-escalate {priority} priority alert",
-        })
+        actions.append(
+            {
+                "type": "escalate",
+                "description": f"Auto-escalate {priority} priority alert",
+            }
+        )
 
     if requires_human_review:
-        actions.append({
-            "type": "human_review",
-            "description": f"Assign to analyst for {priority} priority review",
-        })
+        actions.append(
+            {
+                "type": "human_review",
+                "description": f"Assign to analyst for {priority} priority review",
+            }
+        )
 
     if approval_level != "low":
-        actions.append({
-            "type": "approval_required",
-            "description": f"Requires {APPROVAL_LEVELS[approval_level]['approver_role']} approval for automated response",
-        })
+        actions.append(
+            {
+                "type": "approval_required",
+                "description": f"Requires {APPROVAL_LEVELS[approval_level]['approver_role']} approval for automated response",
+            }
+        )
 
     if not actions:
-        actions.append({
-            "type": "auto_assign",
-            "description": f"Auto-assign {priority} priority alert to analyst",
-        })
+        actions.append(
+            {
+                "type": "auto_assign",
+                "description": f"Auto-assign {priority} priority alert to analyst",
+            }
+        )
 
     return actions
 
@@ -788,9 +801,7 @@ async def consume_triaged_alerts():
                     "version": "1.0",
                     "payload": {
                         "workflow_type": (
-                            "incident-response"
-                            if decision["auto_escalate"]
-                            else "alert-processing"
+                            "incident-response" if decision["auto_escalate"] else "alert-processing"
                         ),
                         "trigger_source": "decision-engine",
                         "alert_id": alert_id,
@@ -1092,9 +1103,7 @@ async def get_metrics():
         "active_escalation_timers": sum(
             1 for t in escalation_timers.values() if not t["escalated"]
         ),
-        "breached_escalations": sum(
-            1 for t in escalation_timers.values() if t["escalated"]
-        ),
+        "breached_escalations": sum(1 for t in escalation_timers.values() if t["escalated"]),
         "analyst_workload": {
             a["id"]: {
                 "active_tasks": a["active_tasks"],
@@ -1257,11 +1266,13 @@ async def get_escalation_status():
 
     for alert_id, timer in escalation_timers.items():
         breach_info = check_sla_breach(timer["priority"], timer["created_at"], now)
-        statuses.append({
-            "alert_id": alert_id,
-            "escalated": timer["escalated"],
-            **breach_info,
-        })
+        statuses.append(
+            {
+                "alert_id": alert_id,
+                "escalated": timer["escalated"],
+                **breach_info,
+            }
+        )
 
     return {
         "success": True,
@@ -1270,7 +1281,9 @@ async def get_escalation_status():
 
 
 @app.post("/api/v1/approvals/{alert_id}", tags=["Approval"])
-async def process_approval(alert_id: str, approved: bool, approver: str, reason: Optional[str] = None):
+async def process_approval(
+    alert_id: str, approved: bool, approver: str, reason: Optional[str] = None
+):
     """
     Process an approval or rejection for a pending approval request.
 

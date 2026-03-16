@@ -32,12 +32,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, text
 from shared.database import DatabaseManager, close_database, get_database_manager, init_database
 from shared.database.models import Asset
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
+from sqlalchemy import select, text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -129,12 +129,7 @@ def calculate_vulnerability_score(vulnerabilities: Dict[str, Any]) -> Dict[str, 
 
     # Weighted vulnerability score (0-100)
     # Critical: 10 points each, High: 5, Medium: 2, Low: 0.5
-    raw_score = (
-        critical_count * 10.0
-        + high_count * 5.0
-        + medium_count * 2.0
-        + low_count * 0.5
-    )
+    raw_score = critical_count * 10.0 + high_count * 5.0 + medium_count * 2.0 + low_count * 0.5
     # Cap at 100
     vulnerability_score = min(100.0, raw_score)
 
@@ -148,10 +143,13 @@ def calculate_vulnerability_score(vulnerabilities: Dict[str, Any]) -> Dict[str, 
             "low": low_count,
         },
         "risk_level": (
-            "critical" if vulnerability_score >= 80
-            else "high" if vulnerability_score >= 50
-            else "medium" if vulnerability_score >= 20
-            else "low"
+            "critical"
+            if vulnerability_score >= 80
+            else (
+                "high"
+                if vulnerability_score >= 50
+                else "medium" if vulnerability_score >= 20 else "low"
+            )
         ),
         "has_critical_vulnerabilities": critical_count > 0,
     }
@@ -231,9 +229,7 @@ async def lookup_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
 
     try:
         async with db_manager.get_session() as session:
-            result = await session.execute(
-                select(Asset).where(Asset.asset_id == asset_id)
-            )
+            result = await session.execute(select(Asset).where(Asset.asset_id == asset_id))
             asset = result.scalar_one_or_none()
 
             if asset:
@@ -286,9 +282,7 @@ async def lookup_asset_by_ip(ip_address: str) -> Optional[Dict[str, Any]]:
 
     try:
         async with db_manager.get_session() as session:
-            result = await session.execute(
-                select(Asset).where(Asset.ip_address == ip_address)
-            )
+            result = await session.execute(select(Asset).where(Asset.ip_address == ip_address))
             asset = result.scalar_one_or_none()
 
             if asset:
@@ -326,7 +320,9 @@ async def lookup_asset_by_ip(ip_address: str) -> Optional[Dict[str, Any]]:
 # =============================================================================
 
 
-async def enrich_alert_with_asset(alert_data: Dict[str, Any], enrichment: Dict[str, Any]) -> Dict[str, Any]:
+async def enrich_alert_with_asset(
+    alert_data: Dict[str, Any], enrichment: Dict[str, Any]
+) -> Dict[str, Any]:
     """
     Enrich alert with asset data, vulnerability assessment, criticality evaluation,
     and patch status.
@@ -545,7 +541,7 @@ async def persist_asset_context_to_db(alert_id: str, asset_enrichment: Dict[str,
                     "context_data": json.dumps(asset_enrichment),
                     "source": "asset-enricher",
                     "confidence_score": 0.9,
-                }
+                },
             )
             await session.commit()
             logger.debug(f"Asset enrichment persisted for alert {alert_id}")
@@ -586,9 +582,9 @@ async def consume_alerts():
             # Merge enrichments
             merged_enrichment = {**existing_enrichment}
             merged_enrichment["asset_enrichment"] = asset_enrichment
-            merged_enrichment["enrichment_sources"] = existing_enrichment.get("enrichment_sources", []) + [
-                "asset_enricher"
-            ]
+            merged_enrichment["enrichment_sources"] = existing_enrichment.get(
+                "enrichment_sources", []
+            ) + ["asset_enricher"]
 
             # Create enriched message for downstream
             enriched_message = {

@@ -1,16 +1,16 @@
 """Unit tests for Alert Ingestor service - business logic and helpers."""
 
-import pytest
-from datetime import datetime, timedelta
 from collections import defaultdict
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import AlertType, SecurityAlert, Severity
-
 
 # ---------------------------------------------------------------------------
 # Rate Limiting Logic
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimiting:
     """Test the in-memory rate limiting logic."""
@@ -18,9 +18,9 @@ class TestRateLimiting:
     def test_rate_limit_allows_under_threshold(self):
         """Requests under the limit should pass."""
         from services.alert_ingestor.main import (
-            rate_limit_tracker,
             RATE_LIMIT_REQUESTS,
             RATE_LIMIT_WINDOW,
+            rate_limit_tracker,
         )
 
         test_ip = "test-rate-limit-under"
@@ -33,7 +33,8 @@ class TestRateLimiting:
 
         # Clean and count
         cleaned = [
-            ts for ts in rate_limit_tracker[test_ip]
+            ts
+            for ts in rate_limit_tracker[test_ip]
             if (now - ts).total_seconds() < RATE_LIMIT_WINDOW
         ]
         assert len(cleaned) < RATE_LIMIT_REQUESTS
@@ -44,8 +45,8 @@ class TestRateLimiting:
     def test_rate_limit_old_entries_expire(self):
         """Old entries should be cleaned during check."""
         from services.alert_ingestor.main import (
-            rate_limit_tracker,
             RATE_LIMIT_WINDOW,
+            rate_limit_tracker,
         )
 
         test_ip = "test-rate-limit-expire"
@@ -55,7 +56,8 @@ class TestRateLimiting:
         rate_limit_tracker[test_ip] = [old, old, old, now]
 
         cleaned = [
-            ts for ts in rate_limit_tracker[test_ip]
+            ts
+            for ts in rate_limit_tracker[test_ip]
             if (now - ts).total_seconds() < RATE_LIMIT_WINDOW
         ]
         assert len(cleaned) == 1
@@ -67,6 +69,7 @@ class TestRateLimiting:
 # ---------------------------------------------------------------------------
 # Alert Message Construction
 # ---------------------------------------------------------------------------
+
 
 class TestAlertMessageConstruction:
     """Test how alert data is packaged into MQ messages."""
@@ -136,6 +139,7 @@ class TestAlertMessageConstruction:
 # ---------------------------------------------------------------------------
 # Deduplication (via shared module)
 # ---------------------------------------------------------------------------
+
 
 class TestDeduplication:
     """Test alert deduplication logic from shared module."""

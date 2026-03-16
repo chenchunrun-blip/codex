@@ -554,11 +554,20 @@ async def execute_playbook_action(
                 value = condition.get("value")
                 ctx_value = context.get(field)
                 if operator == "==" and ctx_value != value:
-                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
+                    return {
+                        "status": "skipped",
+                        "output": f"Condition not met: {field} {operator} {value}",
+                    }
                 elif operator == "!=" and ctx_value == value:
-                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
+                    return {
+                        "status": "skipped",
+                        "output": f"Condition not met: {field} {operator} {value}",
+                    }
                 elif operator == "in" and ctx_value not in (value or []):
-                    return {"status": "skipped", "output": f"Condition not met: {field} {operator} {value}"}
+                    return {
+                        "status": "skipped",
+                        "output": f"Condition not met: {field} {operator} {value}",
+                    }
 
         # Get executor
         executor = ACTION_EXECUTORS.get(action.action_type)
@@ -630,11 +639,13 @@ async def perform_rollback(
                 timeout_seconds=action.timeout_seconds,
             )
             result = await execute_playbook_action(execution, rollback, context)
-            rollback_results.append({
-                "action_id": action.action_id,
-                "rollback_action": rollback_action_type,
-                "result": result,
-            })
+            rollback_results.append(
+                {
+                    "action_id": action.action_id,
+                    "rollback_action": rollback_action_type,
+                    "result": result,
+                }
+            )
 
             await audit_log(
                 event_type="automation.rollback",
@@ -650,17 +661,21 @@ async def perform_rollback(
             )
         except Exception as e:
             logger.error(f"Rollback failed for {action.action_id}: {e}")
-            rollback_results.append({
-                "action_id": action.action_id,
-                "error": str(e),
-            })
+            rollback_results.append(
+                {
+                    "action_id": action.action_id,
+                    "error": str(e),
+                }
+            )
 
     execution.rollback_performed = True
-    execution.results.append({
-        "type": "rollback",
-        "executed_at": datetime.utcnow().isoformat(),
-        "rollback_results": rollback_results,
-    })
+    execution.results.append(
+        {
+            "type": "rollback",
+            "executed_at": datetime.utcnow().isoformat(),
+            "rollback_results": rollback_results,
+        }
+    )
 
     logger.info(f"Rollback completed for execution {execution.execution_id}")
 

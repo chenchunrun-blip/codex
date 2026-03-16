@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     import os
+
     await init_database(
         database_url=config.database_url,
         pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
@@ -420,7 +421,9 @@ async def get_config_history(key: str, limit: int = 50):
     }
 
 
-async def _query_config_history_from_db(key: str, limit: int = 50) -> Optional[List[Dict[str, Any]]]:
+async def _query_config_history_from_db(
+    key: str, limit: int = 50
+) -> Optional[List[Dict[str, Any]]]:
     """Query configuration change history from the database.
 
     Args:

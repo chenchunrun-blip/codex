@@ -18,19 +18,20 @@ Unit tests for API Gateway.
 Tests FastAPI endpoints, request validation, and response formatting.
 """
 
-import pytest
 from datetime import datetime
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from main import app
+import pytest
+from fastapi.testclient import TestClient
 from shared.database.models import Alert
 from shared.models.alert import AlertStatus, AlertType, Severity
 
+from main import app
 
 # =============================================================================
 # Test Client
 # =============================================================================
+
 
 @pytest.fixture
 def test_client():
@@ -62,6 +63,7 @@ def mock_alert():
 # Health Check Tests
 # =============================================================================
 
+
 class TestHealthEndpoints:
     """Test health check endpoints."""
 
@@ -77,12 +79,14 @@ class TestHealthEndpoints:
 
     def test_health_check(self, test_client):
         """Test health check endpoint."""
-        with patch('shared.database.base.get_database_manager') as mock_get_db:
+        with patch("shared.database.base.get_database_manager") as mock_get_db:
             mock_db_manager = MagicMock()
-            mock_db_manager.health_check = AsyncMock(return_value={
-                "status": "healthy",
-                "pool_size": 20,
-            })
+            mock_db_manager.health_check = AsyncMock(
+                return_value={
+                    "status": "healthy",
+                    "pool_size": 20,
+                }
+            )
             mock_get_db.return_value = mock_db_manager
 
             response = test_client.get("/health")
@@ -102,11 +106,13 @@ class TestHealthEndpoints:
 
     def test_readiness_probe(self, test_client):
         """Test readiness probe."""
-        with patch('shared.database.base.get_database_manager') as mock_get_db:
+        with patch("shared.database.base.get_database_manager") as mock_get_db:
             mock_db_manager = MagicMock()
-            mock_db_manager.health_check = AsyncMock(return_value={
-                "status": "healthy",
-            })
+            mock_db_manager.health_check = AsyncMock(
+                return_value={
+                    "status": "healthy",
+                }
+            )
             mock_get_db.return_value = mock_db_manager
 
             response = test_client.get("/health/ready")
@@ -120,12 +126,13 @@ class TestHealthEndpoints:
 # Alert API Tests
 # =============================================================================
 
+
 class TestAlertAPI:
     """Test alert API endpoints."""
 
     def test_list_alerts_default(self, test_client, mock_alert):
         """Test listing alerts with default parameters."""
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.get_alerts_by_filter = AsyncMock(return_value=([mock_alert], 1))
             mock_repo_class.return_value = mock_repo
@@ -141,7 +148,7 @@ class TestAlertAPI:
 
     def test_list_alerts_with_filters(self, test_client, mock_alert):
         """Test listing alerts with filter parameters."""
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.get_alerts_by_filter = AsyncMock(return_value=([mock_alert], 1))
             mock_repo_class.return_value = mock_repo
@@ -154,7 +161,7 @@ class TestAlertAPI:
                     "status": "new",
                     "skip": 0,
                     "limit": 10,
-                }
+                },
             )
 
             assert response.status_code == 200
@@ -163,7 +170,7 @@ class TestAlertAPI:
 
     def test_get_alert_by_id(self, test_client, mock_alert):
         """Test getting alert by ID."""
-        with patch('routes.alerts.get_alert_with_details') as mock_get:
+        with patch("routes.alerts.get_alert_with_details") as mock_get:
             mock_get.return_value = {
                 "alert": mock_alert,
                 "triage_result": None,
@@ -178,8 +185,9 @@ class TestAlertAPI:
 
     def test_get_alert_not_found(self, test_client):
         """Test getting non-existent alert."""
-        with patch('routes.alerts.get_alert_with_details') as mock_get:
+        with patch("routes.alerts.get_alert_with_details") as mock_get:
             from fastapi import HTTPException
+
             mock_get.side_effect = HTTPException(status_code=404, detail="Not found")
 
             response = test_client.get("/api/v1/alerts/non-existent")
@@ -197,7 +205,7 @@ class TestAlertAPI:
             "destination_ip": "10.0.0.50",
         }
 
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.create_alert = AsyncMock(return_value=mock_alert)
             mock_repo_class.return_value = mock_repo
@@ -227,7 +235,7 @@ class TestAlertAPI:
             "comment": "Investigating",
         }
 
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.update_alert_status = AsyncMock(return_value=mock_alert)
             mock_repo_class.return_value = mock_repo
@@ -243,25 +251,31 @@ class TestAlertAPI:
 
     def test_get_alert_stats(self, test_client):
         """Test getting alert statistics."""
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
-            mock_repo.get_alerts_count_by_severity = AsyncMock(return_value={
-                "critical": 5,
-                "high": 15,
-                "medium": 30,
-            })
-            mock_repo.get_alerts_count_by_status = AsyncMock(return_value={
-                "new": 10,
-                "in_progress": 5,
-            })
-            mock_repo.get_alerts_count_by_type = AsyncMock(return_value={
-                "malware": 20,
-                "phishing": 10,
-            })
+            mock_repo.get_alerts_count_by_severity = AsyncMock(
+                return_value={
+                    "critical": 5,
+                    "high": 15,
+                    "medium": 30,
+                }
+            )
+            mock_repo.get_alerts_count_by_status = AsyncMock(
+                return_value={
+                    "new": 10,
+                    "in_progress": 5,
+                }
+            )
+            mock_repo.get_alerts_count_by_type = AsyncMock(
+                return_value={
+                    "malware": 20,
+                    "phishing": 10,
+                }
+            )
             mock_repo.get_high_priority_alerts = AsyncMock(return_value=[])
             mock_repo_class.return_value = mock_repo
 
-            with patch('routes.alerts.TriageRepository') as mock_triage_class:
+            with patch("routes.alerts.TriageRepository") as mock_triage_class:
                 mock_triage = MagicMock()
                 mock_triage.get_pending_review_count = AsyncMock(return_value=3)
                 mock_triage.get_average_risk_score = AsyncMock(return_value=65.5)
@@ -276,7 +290,7 @@ class TestAlertAPI:
 
     def test_get_high_priority_alerts(self, test_client, mock_alert):
         """Test getting high-priority alerts."""
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.get_high_priority_alerts = AsyncMock(return_value=[mock_alert])
             mock_repo_class.return_value = mock_repo
@@ -294,7 +308,7 @@ class TestAlertAPI:
             "action": "close",
         }
 
-        with patch('routes.alerts.AlertRepository') as mock_repo_class:
+        with patch("routes.alerts.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.close_alert = AsyncMock()
             mock_repo_class.return_value = mock_repo
@@ -311,30 +325,37 @@ class TestAlertAPI:
 # Analytics API Tests
 # =============================================================================
 
+
 class TestAnalyticsAPI:
     """Test analytics API endpoints."""
 
     def test_get_dashboard_stats(self, test_client):
         """Test getting dashboard statistics."""
-        with patch('routes.analytics.AlertRepository') as mock_repo_class:
+        with patch("routes.analytics.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
-            mock_repo.get_alerts_count_by_severity = AsyncMock(return_value={
-                "critical": 2,
-                "high": 8,
-                "medium": 15,
-            })
-            mock_repo.get_alerts_count_by_status = AsyncMock(return_value={
-                "new": 5,
-                "in_progress": 3,
-            })
-            mock_repo.get_alerts_count_by_type = AsyncMock(return_value={
-                "malware": 10,
-                "phishing": 5,
-            })
+            mock_repo.get_alerts_count_by_severity = AsyncMock(
+                return_value={
+                    "critical": 2,
+                    "high": 8,
+                    "medium": 15,
+                }
+            )
+            mock_repo.get_alerts_count_by_status = AsyncMock(
+                return_value={
+                    "new": 5,
+                    "in_progress": 3,
+                }
+            )
+            mock_repo.get_alerts_count_by_type = AsyncMock(
+                return_value={
+                    "malware": 10,
+                    "phishing": 5,
+                }
+            )
             mock_repo.get_alerts_by_date_range = AsyncMock(return_value=[])
             mock_repo_class.return_value = mock_repo
 
-            with patch('routes.analytics.TriageRepository') as mock_triage_class:
+            with patch("routes.analytics.TriageRepository") as mock_triage_class:
                 mock_triage = MagicMock()
                 mock_triage.get_pending_review_count = AsyncMock(return_value=2)
                 mock_triage.get_average_risk_score = AsyncMock(return_value=60.0)
@@ -350,7 +371,7 @@ class TestAnalyticsAPI:
 
     def test_get_alert_trends(self, test_client):
         """Test getting alert trends."""
-        with patch('routes.analytics.AlertRepository') as mock_repo_class:
+        with patch("routes.analytics.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
             mock_repo.get_alerts_by_date_range = AsyncMock(return_value=[])
             mock_repo_class.return_value = mock_repo
@@ -365,14 +386,16 @@ class TestAnalyticsAPI:
 
     def test_get_severity_distribution(self, test_client):
         """Test getting severity distribution."""
-        with patch('routes.analytics.AlertRepository') as mock_repo_class:
+        with patch("routes.analytics.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
-            mock_repo.get_alerts_count_by_severity = AsyncMock(return_value={
-                "critical": 5,
-                "high": 15,
-                "medium": 30,
-                "low": 20,
-            })
+            mock_repo.get_alerts_count_by_severity = AsyncMock(
+                return_value={
+                    "critical": 5,
+                    "high": 15,
+                    "medium": 30,
+                    "low": 20,
+                }
+            )
             mock_repo_class.return_value = mock_repo
 
             response = test_client.get("/api/v1/analytics/metrics/severity-distribution")
@@ -385,13 +408,15 @@ class TestAnalyticsAPI:
 
     def test_get_status_distribution(self, test_client):
         """Test getting status distribution."""
-        with patch('routes.analytics.AlertRepository') as mock_repo_class:
+        with patch("routes.analytics.AlertRepository") as mock_repo_class:
             mock_repo = MagicMock()
-            mock_repo.get_alerts_count_by_status = AsyncMock(return_value={
-                "new": 10,
-                "in_progress": 5,
-                "resolved": 20,
-            })
+            mock_repo.get_alerts_count_by_status = AsyncMock(
+                return_value={
+                    "new": 10,
+                    "in_progress": 5,
+                    "resolved": 20,
+                }
+            )
             mock_repo_class.return_value = mock_repo
 
             response = test_client.get("/api/v1/analytics/metrics/status-distribution")
@@ -403,19 +428,23 @@ class TestAnalyticsAPI:
 
     def test_get_performance_metrics(self, test_client):
         """Test getting performance metrics."""
-        with patch('routes.analytics.TriageRepository') as mock_triage_class:
+        with patch("routes.analytics.TriageRepository") as mock_triage_class:
             mock_triage = MagicMock()
             mock_triage.get_average_risk_score = AsyncMock(return_value=65.5)
             mock_triage.get_average_processing_time = AsyncMock(return_value=1200.0)
-            mock_triage.get_model_usage_stats = AsyncMock(return_value={
-                "deepseek": 45,
-                "qwen": 32,
-            })
-            mock_triage.get_risk_level_distribution = AsyncMock(return_value={
-                "critical": 5,
-                "high": 15,
-                "medium": 30,
-            })
+            mock_triage.get_model_usage_stats = AsyncMock(
+                return_value={
+                    "deepseek": 45,
+                    "qwen": 32,
+                }
+            )
+            mock_triage.get_risk_level_distribution = AsyncMock(
+                return_value={
+                    "critical": 5,
+                    "high": 15,
+                    "medium": 30,
+                }
+            )
             mock_triage_class.return_value = mock_triage
 
             response = test_client.get("/api/v1/analytics/metrics/performance")
@@ -430,6 +459,7 @@ class TestAnalyticsAPI:
 # =============================================================================
 # Error Handling Tests
 # =============================================================================
+
 
 class TestErrorHandling:
     """Test error handling."""

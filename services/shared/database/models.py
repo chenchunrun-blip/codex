@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Enum,
@@ -30,17 +31,17 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
+
     pass
 
 
@@ -87,10 +88,16 @@ class User(Base):
     )
 
     # Relationships
-    assigned_alerts = relationship("Alert", foreign_keys="[Alert.assigned_to]", back_populates="assigned_user")
+    assigned_alerts = relationship(
+        "Alert", foreign_keys="[Alert.assigned_to]", back_populates="assigned_user"
+    )
     triage_results = relationship("TriageResult", back_populates="analyst")
-    created_incidents = relationship("Incident", foreign_keys="[Incident.created_by]", back_populates="creator")
-    assigned_incidents = relationship("Incident", foreign_keys="[Incident.assigned_to]", back_populates="assignee")
+    created_incidents = relationship(
+        "Incident", foreign_keys="[Incident.created_by]", back_populates="creator"
+    )
+    assigned_incidents = relationship(
+        "Incident", foreign_keys="[Incident.assigned_to]", back_populates="assignee"
+    )
 
     __table_args__ = (
         Index("ix_users_role", "role"),
@@ -136,7 +143,13 @@ class Asset(Base):
     )
 
     # Relationships
-    alerts = relationship("Alert", foreign_keys="[Alert.asset_id]", primaryjoin="Asset.asset_id == Alert.asset_id", back_populates="asset", viewonly=True)
+    alerts = relationship(
+        "Alert",
+        foreign_keys="[Alert.asset_id]",
+        primaryjoin="Asset.asset_id == Alert.asset_id",
+        back_populates="asset",
+        viewonly=True,
+    )
 
     __table_args__ = (
         Index("ix_assets_type", "asset_type"),
@@ -190,7 +203,9 @@ class Alert(Base):
     risk_score: Mapped[Optional[float]] = mapped_column(Float)
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     assigned_to: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    triage_result_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("triage_results.id"))
+    triage_result_id: Mapped[Optional[UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("triage_results.id")
+    )
     source: Mapped[Optional[str]] = mapped_column(String(100))
     source_ref: Mapped[Optional[str]] = mapped_column(String(255))
     normalized_data: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -211,9 +226,19 @@ class Alert(Base):
     )
 
     # Relationships
-    asset: Mapped[Optional["Asset"]] = relationship("Asset", foreign_keys=[asset_id], primaryjoin="Alert.asset_id == Asset.asset_id", back_populates="alerts", viewonly=True)
-    assigned_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_alerts")
-    triage_result: Mapped[Optional["TriageResult"]] = relationship("TriageResult", foreign_keys=[triage_result_id])
+    asset: Mapped[Optional["Asset"]] = relationship(
+        "Asset",
+        foreign_keys=[asset_id],
+        primaryjoin="Alert.asset_id == Asset.asset_id",
+        back_populates="alerts",
+        viewonly=True,
+    )
+    assigned_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[assigned_to], back_populates="assigned_alerts"
+    )
+    triage_result: Mapped[Optional["TriageResult"]] = relationship(
+        "TriageResult", foreign_keys=[triage_result_id]
+    )
     context_data = relationship("AlertContext", back_populates="alert", uselist=False)
     incident_alerts: Mapped[list] = relationship("IncidentAlert", back_populates="alert")
 
@@ -352,7 +377,9 @@ class TriageResult(Base):
     )
 
     # Relationships
-    analyst: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by], back_populates="triage_results")
+    analyst: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[reviewed_by], back_populates="triage_results"
+    )
 
     __table_args__ = (
         Index("ix_triage_results_risk_score", "risk_score"),
@@ -439,7 +466,9 @@ class Incident(Base):
     incident_type: Mapped[Optional[str]] = mapped_column(String(100))
 
     # Assignment
-    created_by: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     assigned_to: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     # Timeline
@@ -472,8 +501,12 @@ class Incident(Base):
     )
 
     # Relationships
-    creator: Mapped["User"] = relationship("User", foreign_keys=[created_by], back_populates="created_incidents")
-    assignee: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_incidents")
+    creator: Mapped["User"] = relationship(
+        "User", foreign_keys=[created_by], back_populates="created_incidents"
+    )
+    assignee: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[assigned_to], back_populates="assigned_incidents"
+    )
     alerts = relationship("IncidentAlert", back_populates="incident")
     remediation_actions = relationship("RemediationAction", back_populates="incident")
 
@@ -510,7 +543,9 @@ class IncidentAlert(Base):
 
     # Relationships
     incident: Mapped["Incident"] = relationship("Incident", back_populates="alerts")
-    alert: Mapped["Alert"] = relationship("Alert")  # Removed back_populates - Alert doesn't have incident_alerts relationship for POC
+    alert: Mapped["Alert"] = relationship(
+        "Alert"
+    )  # Removed back_populates - Alert doesn't have incident_alerts relationship for POC
 
 
 class RemediationAction(Base):
@@ -547,7 +582,9 @@ class RemediationAction(Base):
 
     # Assignment
     assigned_to: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_by: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
 
     # Automation
     is_automated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

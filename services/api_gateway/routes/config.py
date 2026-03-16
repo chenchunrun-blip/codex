@@ -41,6 +41,7 @@ CONFIGURATION_URL = os.getenv(
 # Request / Response Helpers
 # =============================================================================
 
+
 class UpdateConfigRequest(BaseModel):
     """Request body for updating configuration."""
 
@@ -116,6 +117,7 @@ async def _proxy_request(
 # Get Configuration
 # =============================================================================
 
+
 @router.get(
     "/config",
     summary="Get System Configuration",
@@ -135,6 +137,7 @@ async def get_config():
 # =============================================================================
 # Update Configuration
 # =============================================================================
+
 
 @router.patch(
     "/config",

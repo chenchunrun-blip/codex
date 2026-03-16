@@ -151,7 +151,9 @@ class MessagePublisher:
 
             # Prepare message properties
             message_properties = {
-                "delivery_mode": DeliveryMode.PERSISTENT if persistent else DeliveryMode.NOT_PERSISTENT,
+                "delivery_mode": (
+                    DeliveryMode.PERSISTENT if persistent else DeliveryMode.NOT_PERSISTENT
+                ),
                 "priority": max(0, min(10, priority)),  # Clamp to 0-10
                 "correlation_id": correlation_id or message_id,
                 "message_id": message_id,
@@ -382,9 +384,7 @@ class MessagePublisher:
             start_time = datetime.utcnow()
             while self._pending_confirms:
                 if (datetime.utcnow() - start_time).total_seconds() > timeout:
-                    logger.warning(
-                        f"Timeout waiting for {len(self._pending_confirms)} confirms"
-                    )
+                    logger.warning(f"Timeout waiting for {len(self._pending_confirms)} confirms")
                     return False
 
                 await asyncio.sleep(0.1)
@@ -399,9 +399,7 @@ class MessagePublisher:
     async def close(self):
         """Close connection to RabbitMQ."""
         if self._pending_confirms:
-            logger.warning(
-                f"Closing publisher with {len(self._pending_confirms)} pending confirms"
-            )
+            logger.warning(f"Closing publisher with {len(self._pending_confirms)} pending confirms")
 
         if self.connection:
             await self.connection.close()

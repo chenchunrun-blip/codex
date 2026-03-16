@@ -41,6 +41,7 @@ USER_MANAGEMENT_URL = os.getenv(
 # Request / Response Helpers
 # =============================================================================
 
+
 class CreateUserRequest(BaseModel):
     """Request body for creating a user."""
 
@@ -135,6 +136,7 @@ async def _proxy_request(
 # Create User
 # =============================================================================
 
+
 @router.post(
     "/users",
     status_code=201,
@@ -162,6 +164,7 @@ async def create_user(request: CreateUserRequest):
 # =============================================================================
 # List Users
 # =============================================================================
+
 
 @router.get(
     "/users",
@@ -208,6 +211,7 @@ async def list_users(
 # Get User Details
 # =============================================================================
 
+
 @router.get(
     "/users/{user_id}",
     summary="Get User Details",
@@ -233,6 +237,7 @@ async def get_user(user_id: str):
 # =============================================================================
 # Update User
 # =============================================================================
+
 
 @router.patch(
     "/users/{user_id}",
@@ -263,6 +268,7 @@ async def update_user(user_id: str, request: UpdateUserRequest):
 # =============================================================================
 # Delete User
 # =============================================================================
+
 
 @router.delete(
     "/users/{user_id}",

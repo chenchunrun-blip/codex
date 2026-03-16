@@ -417,9 +417,7 @@ class TriageRepository(BaseRepository[TriageResult]):
         Returns:
             Average risk score or None
         """
-        result = await self.session.execute(
-            select(func.avg(TriageResult.risk_score))
-        )
+        result = await self.session.execute(select(func.avg(TriageResult.risk_score)))
         return result.scalar()
 
     async def get_risk_level_distribution(self) -> Dict[str, int]:
@@ -430,8 +428,9 @@ class TriageRepository(BaseRepository[TriageResult]):
             Dictionary with risk level as key and count as value
         """
         result = await self.session.execute(
-            select(TriageResult.risk_level, func.count(TriageResult.id))
-            .group_by(TriageResult.risk_level)
+            select(TriageResult.risk_level, func.count(TriageResult.id)).group_by(
+                TriageResult.risk_level
+            )
         )
 
         return {risk_level: count for risk_level, count in result.all()}
@@ -444,8 +443,9 @@ class TriageRepository(BaseRepository[TriageResult]):
             Dictionary with model name as key and count as value
         """
         result = await self.session.execute(
-            select(TriageResult.model_used, func.count(TriageResult.id))
-            .group_by(TriageResult.model_used)
+            select(TriageResult.model_used, func.count(TriageResult.id)).group_by(
+                TriageResult.model_used
+            )
         )
 
         return {model: count for model, count in result.all()}
@@ -520,9 +520,7 @@ class TriageRepository(BaseRepository[TriageResult]):
         Returns:
             List of created triage result instances
         """
-        triage_results = [
-            TriageResult(**triage_data) for triage_data in triage_results_data
-        ]
+        triage_results = [TriageResult(**triage_data) for triage_data in triage_results_data]
         self.session.add_all(triage_results)
         await self.session.flush()
 

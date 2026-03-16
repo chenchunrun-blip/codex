@@ -109,7 +109,9 @@ class RiskScoringEngine:
         try:
             # Extract severity score
             severity_value = alert.get("severity", "medium")
-            severity = Severity(severity_value) if isinstance(severity_value, str) else severity_value
+            severity = (
+                Severity(severity_value) if isinstance(severity_value, str) else severity_value
+            )
             severity_score = self.SEVERITY_SCORES.get(severity, 50)
 
             # Calculate severity component
@@ -135,15 +137,17 @@ class RiskScoringEngine:
 
             # Get alert type multiplier
             alert_type_str = alert.get("alert_type", "other")
-            alert_type = AlertType(alert_type_str) if isinstance(alert_type_str, str) else AlertType.OTHER
+            alert_type = (
+                AlertType(alert_type_str) if isinstance(alert_type_str, str) else AlertType.OTHER
+            )
             type_multiplier = self.ALERT_TYPE_MULTIPLIERS.get(alert_type, 1.0)
 
             # Calculate base score
             base_score = (
-                severity_component +
-                threat_intel_component +
-                asset_component +
-                exploitability_component
+                severity_component
+                + threat_intel_component
+                + asset_component
+                + exploitability_component
             )
 
             # Apply type multiplier
@@ -164,7 +168,8 @@ class RiskScoringEngine:
                 "risk_score": final_score,
                 "risk_level": risk_level,
                 "confidence": self._calculate_confidence(
-                    threat_intel, historical_data,
+                    threat_intel,
+                    historical_data,
                     network_context=network_context,
                     asset_context=asset_context,
                     user_context=user_context,
@@ -174,17 +179,25 @@ class RiskScoringEngine:
                     "severity": {
                         "score": int(severity_component),
                         "weight": self.RISK_WEIGHTS["severity"],
-                        "value": severity.value if isinstance(severity, Severity) else str(severity),
+                        "value": (
+                            severity.value if isinstance(severity, Severity) else str(severity)
+                        ),
                     },
                     "threat_intel": {
                         "score": int(threat_intel_component),
                         "weight": self.RISK_WEIGHTS["threat_intel"],
-                        "sources_queried": len(threat_intel.get("queried_sources", [])) if threat_intel else 0,
+                        "sources_queried": (
+                            len(threat_intel.get("queried_sources", [])) if threat_intel else 0
+                        ),
                     },
                     "asset_criticality": {
                         "score": int(asset_component),
                         "weight": self.RISK_WEIGHTS["asset_criticality"],
-                        "criticality": asset_context.get("criticality", "unknown") if asset_context else "unknown",
+                        "criticality": (
+                            asset_context.get("criticality", "unknown")
+                            if asset_context
+                            else "unknown"
+                        ),
                     },
                     "exploitability": {
                         "score": int(exploitability_component),
@@ -192,7 +205,9 @@ class RiskScoringEngine:
                     },
                 },
                 "factors": {
-                    "alert_type": alert_type.value if isinstance(alert_type, AlertType) else str(alert_type),
+                    "alert_type": (
+                        alert_type.value if isinstance(alert_type, AlertType) else str(alert_type)
+                    ),
                     "type_multiplier": type_multiplier,
                     "historical_multiplier": historical_multiplier,
                 },
@@ -331,7 +346,8 @@ class RiskScoringEngine:
         if threat_intel:
             sources_count = len(threat_intel.get("queried_sources", []))
             detection_count = sum(
-                1 for ind in threat_intel.get("indicators", [])
+                1
+                for ind in threat_intel.get("indicators", [])
                 if isinstance(ind, dict) and ind.get("detected")
             )
             aggregate_score = threat_intel.get("aggregate_score", 0)

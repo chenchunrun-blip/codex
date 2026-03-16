@@ -168,7 +168,9 @@ class AssetCollector:
             return "server"
         elif any(keyword in asset_id_lower for keyword in ["desktop", "laptop", "ws", "pc"]):
             return "workstation"
-        elif any(keyword in asset_id_lower for keyword in ["router", "switch", "firewall", "fw", "sw"]):
+        elif any(
+            keyword in asset_id_lower for keyword in ["router", "switch", "firewall", "fw", "sw"]
+        ):
             return "network_device"
         elif any(keyword in asset_id_lower for keyword in ["db", "database", "sql", "oracle"]):
             return "database"
@@ -293,8 +295,7 @@ class AssetCollector:
             "cache_size": len(self.cache),
             "cache_ttl_seconds": int(self.cache_ttl.total_seconds()),
             "expired_entries": sum(
-                1 for _, expiry in self.cache.values()
-                if datetime.utcnow() >= expiry
+                1 for _, expiry in self.cache.values() if datetime.utcnow() >= expiry
             ),
         }
 

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from shared.clustering import AlertClusteringEngine
 from shared.database import get_database_manager
 from shared.messaging import MessageConsumer
 from shared.models import (
@@ -38,7 +39,6 @@ from shared.models import (
     VectorSearchRequest,
     VectorSearchResponse,
 )
-from shared.clustering import AlertClusteringEngine
 from shared.utils import Config, get_logger
 
 logger = get_logger(__name__)
@@ -110,8 +110,8 @@ def initialize_chromadb():
 def alert_to_text(alert: SecurityAlert) -> str:
     """Convert alert to text for embedding."""
     parts = [
-        f"Alert Type: {alert.alert_type}",
-        f"Severity: {alert.severity}",
+        f"Alert Type: {alert.alert_type.value}",
+        f"Severity: {alert.severity.value}",
         f"Description: {alert.description}",
     ]
 
@@ -472,15 +472,17 @@ async def cluster_alert(alert: SecurityAlert):
                 vector_similarities.append((aid, sim_score))
 
                 meta = chroma_results["metadatas"][0][i] if chroma_results["metadatas"] else {}
-                candidate_alerts.append({
-                    "alert_id": aid,
-                    "alert_type": meta.get("alert_type", ""),
-                    "severity": meta.get("severity", ""),
-                    "source_ip": meta.get("source_ip"),
-                    "target_ip": meta.get("target_ip"),
-                    "asset_id": meta.get("asset_id"),
-                    "file_hash": meta.get("file_hash"),
-                })
+                candidate_alerts.append(
+                    {
+                        "alert_id": aid,
+                        "alert_type": meta.get("alert_type", ""),
+                        "severity": meta.get("severity", ""),
+                        "source_ip": meta.get("source_ip"),
+                        "target_ip": meta.get("target_ip"),
+                        "asset_id": meta.get("asset_id"),
+                        "file_hash": meta.get("file_hash"),
+                    }
+                )
 
         # Step 2: Run clustering engine
         alert_dict = alert.model_dump()

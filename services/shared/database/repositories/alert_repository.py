@@ -86,9 +86,7 @@ class AlertRepository(BaseRepository[Alert]):
         Returns:
             Alert instance or None
         """
-        result = await self.session.execute(
-            select(Alert).where(Alert.alert_id == alert_id)
-        )
+        result = await self.session.execute(select(Alert).where(Alert.alert_id == alert_id))
         return result.scalar_one_or_none()
 
     async def get_alerts_by_filter(
@@ -443,9 +441,7 @@ class AlertRepository(BaseRepository[Alert]):
         """
         result = await self.session.execute(
             select(Alert)
-            .where(
-                Alert.status.notin_([AlertStatus.RESOLVED.value, AlertStatus.CLOSED.value])
-            )
+            .where(Alert.status.notin_([AlertStatus.RESOLVED.value, AlertStatus.CLOSED.value]))
             .order_by(Alert.timestamp.desc())
             .offset(skip)
             .limit(limit)
@@ -491,8 +487,7 @@ class AlertRepository(BaseRepository[Alert]):
             Dictionary with severity as key and count as value
         """
         result = await self.session.execute(
-            select(Alert.severity, func.count(Alert.alert_id))
-            .group_by(Alert.severity)
+            select(Alert.severity, func.count(Alert.alert_id)).group_by(Alert.severity)
         )
 
         return {severity: count for severity, count in result.all()}
@@ -505,8 +500,7 @@ class AlertRepository(BaseRepository[Alert]):
             Dictionary with status as key and count as value
         """
         result = await self.session.execute(
-            select(Alert.status, func.count(Alert.alert_id))
-            .group_by(Alert.status)
+            select(Alert.status, func.count(Alert.alert_id)).group_by(Alert.status)
         )
 
         return {status: count for status, count in result.all()}
@@ -519,8 +513,7 @@ class AlertRepository(BaseRepository[Alert]):
             Dictionary with alert type as key and count as value
         """
         result = await self.session.execute(
-            select(Alert.alert_type, func.count(Alert.alert_id))
-            .group_by(Alert.alert_type)
+            select(Alert.alert_type, func.count(Alert.alert_id)).group_by(Alert.alert_type)
         )
 
         return {alert_type: count for alert_type, count in result.all()}

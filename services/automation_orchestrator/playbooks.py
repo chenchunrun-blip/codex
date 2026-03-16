@@ -20,8 +20,8 @@ security scenarios including malware, phishing, brute force, and data exfiltrati
 """
 
 from typing import Any, Dict, List
-from shared.models import AutomationPlaybook, PlaybookAction
 
+from shared.models import AutomationPlaybook, PlaybookAction
 
 # =============================================================================
 # Malware Response Playbooks
@@ -514,6 +514,7 @@ DATA_EXFILTRATION_CONTAINMENT_PLAYBOOK = AutomationPlaybook(
 # =============================================================================
 # Utility Functions
 # =============================================================================
+
 
 def get_all_playbooks() -> Dict[str, AutomationPlaybook]:
     """Get all available SOAR playbooks."""

@@ -1,21 +1,21 @@
 """Unit tests for LLM Router service - routing logic, model selection, mock responses."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from shared.models import (
     LLMModel,
     LLMProvider,
     LLMRequest,
-    TaskType,
     ModelCapabilities,
+    TaskType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Model Capabilities Registry
 # ---------------------------------------------------------------------------
+
 
 class TestModelCapabilities:
     """Test model capabilities registry."""
@@ -64,6 +64,7 @@ class TestModelCapabilities:
 # Request Routing Logic
 # ---------------------------------------------------------------------------
 
+
 class TestRouteRequest:
     """Test the route_request function."""
 
@@ -95,6 +96,7 @@ class TestRouteRequest:
 
         # Should route to a model that supports TRIAGE
         from services.llm_router.main import MODEL_CAPABILITIES
+
         caps = MODEL_CAPABILITIES[decision.selected_model]
         assert TaskType.TRIAGE in caps.best_for
 
@@ -109,6 +111,7 @@ class TestRouteRequest:
         decision = route_request(request)
 
         from services.llm_router.main import MODEL_CAPABILITIES
+
         caps = MODEL_CAPABILITIES[decision.selected_model]
         assert TaskType.CLASSIFICATION in caps.best_for
 
@@ -174,6 +177,7 @@ class TestRouteRequest:
         decision = route_request(request)
 
         from services.llm_router.main import MODEL_CAPABILITIES
+
         # Estimated tokens = 40000 / 4 = 10000, which exceeds Qwen3-Turbo's 8000
         caps = MODEL_CAPABILITIES[decision.selected_model]
         assert caps.max_context >= 10000
@@ -182,6 +186,7 @@ class TestRouteRequest:
 # ---------------------------------------------------------------------------
 # Mock Response Generation
 # ---------------------------------------------------------------------------
+
 
 class TestMockResponse:
     """Test mock response generation for dev/testing."""
@@ -223,6 +228,7 @@ class TestMockResponse:
 # ---------------------------------------------------------------------------
 # Provider Endpoints
 # ---------------------------------------------------------------------------
+
 
 class TestProviderEndpoints:
     """Test provider endpoint configuration."""

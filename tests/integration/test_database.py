@@ -25,17 +25,15 @@ from typing import AsyncGenerator, Dict, List
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-
 from shared.database.base import DatabaseManager, close_database, init_database
 from shared.database.models import Alert, AlertContext, Asset, TriageResult, User
 from shared.database.repositories.alert_repository import AlertRepository
 from shared.database.repositories.base import BaseRepository
 from shared.database.repositories.triage_repository import TriageRepository
 from shared.models.alert import AlertFilter, AlertStatus, AlertType, Severity
-
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 # =============================================================================
 # Test Configuration
@@ -48,6 +46,7 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture(scope="function")
 async def test_engine():
     """Create test database engine."""
@@ -58,6 +57,7 @@ async def test_engine():
 
     # Create tables
     from shared.database.models import Base
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -146,6 +146,7 @@ def sample_asset_data() -> Dict:
 # Database Connection Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 @pytest.mark.database
 class TestDatabaseConnection:
@@ -188,9 +189,8 @@ class TestDatabaseConnection:
         # Verify in new session
         async with db_manager.get_session() as session:
             from sqlalchemy import select
-            result = await session.execute(
-                select(Alert).where(Alert.alert_id == "test-commit-001")
-            )
+
+            result = await session.execute(select(Alert).where(Alert.alert_id == "test-commit-001"))
             assert result.scalar_one_or_none() is not None
 
     async def test_session_rollback(self, db_manager):
@@ -219,6 +219,7 @@ class TestDatabaseConnection:
 # =============================================================================
 # Alert Repository Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.database
@@ -362,7 +363,9 @@ class TestAlertRepository:
         alerts, total = await repo.get_alerts_by_filter(filters)
 
         assert total >= 1
-        assert any("malware" in a.title.lower() or "malware" in a.description.lower() for a in alerts)
+        assert any(
+            "malware" in a.title.lower() or "malware" in a.description.lower() for a in alerts
+        )
 
     async def test_get_alerts_by_filter_with_date_range(self, test_session, sample_alert_data):
         """Test filtering alerts by date range."""
@@ -517,6 +520,7 @@ class TestAlertRepository:
 # =============================================================================
 # Triage Repository Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.database
@@ -753,6 +757,7 @@ class TestTriageRepository:
 # Model Relationships Tests
 # =============================================================================
 
+
 @pytest.mark.integration
 @pytest.mark.database
 class TestModelRelationships:
@@ -831,6 +836,7 @@ class TestModelRelationships:
 # =============================================================================
 # Transaction Tests
 # =============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.database

@@ -41,6 +41,7 @@ THREAT_INTEL_URL = os.getenv(
 # Request / Response Models
 # =============================================================================
 
+
 class BatchIOCRequest(BaseModel):
     """Request body for batch IOC queries."""
 
@@ -67,6 +68,7 @@ def _wrap_response(
 # =============================================================================
 # Query Single IOC
 # =============================================================================
+
 
 @router.get(
     "/threat-intel/{ioc_type}/{ioc_value}",
@@ -120,6 +122,7 @@ async def query_ioc(ioc_type: str, ioc_value: str):
 # =============================================================================
 # Batch IOC Query
 # =============================================================================
+
 
 @router.post(
     "/threat-intel/batch",

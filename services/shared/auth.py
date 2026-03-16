@@ -28,13 +28,13 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr, Field
 from shared.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 
 # =============================================================================
 # Configuration
 # =============================================================================
+
 
 class AuthConfig:
     """Authentication configuration."""
@@ -48,7 +48,9 @@ class AuthConfig:
     bcrypt_rounds = int(os.getenv("BCRYPT_ROUNDS", "12"))
 
     # Encryption for sensitive data
-    encryption_key = os.getenv("ENCRYPTION_KEY", "").encode() if os.getenv("ENCRYPTION_KEY") else None
+    encryption_key = (
+        os.getenv("ENCRYPTION_KEY", "").encode() if os.getenv("ENCRYPTION_KEY") else None
+    )
     fernet = Fernet(encryption_key) if encryption_key else None
 
 
@@ -56,14 +58,15 @@ class AuthConfig:
 # Models
 # =============================================================================
 
+
 class UserRole(str, Enum):
     """User roles with hierarchical permissions."""
 
-    ADMIN = "admin"           # Full system access
+    ADMIN = "admin"  # Full system access
     SECURITY_ANALYST = "security_analyst"  # Investigate and triage alerts
-    OPERATOR = "operator"     # Day-to-day operations
-    VIEWER = "viewer"         # Read-only access
-    AUDITOR = "auditor"       # Audit log access only
+    OPERATOR = "operator"  # Day-to-day operations
+    VIEWER = "viewer"  # Read-only access
+    AUDITOR = "auditor"  # Audit log access only
 
 
 class Permission(str, Enum):
@@ -101,7 +104,6 @@ class Permission(str, Enum):
 # Role-Permission mapping
 ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
     UserRole.ADMIN: {perm for perm in Permission},  # All permissions
-
     UserRole.SECURITY_ANALYST: {
         Permission.ALERT_VIEW,
         Permission.ALERT_UPDATE,
@@ -113,7 +115,6 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
         Permission.THREAT_INTEL_VIEW,
         Permission.THREAT_INTEL_QUERY,
     },
-
     UserRole.OPERATOR: {
         Permission.ALERT_VIEW,
         Permission.ALERT_CREATE,
@@ -123,14 +124,12 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
         Permission.THREAT_INTEL_VIEW,
         Permission.SYSTEM_MONITORING,
     },
-
     UserRole.VIEWER: {
         Permission.ALERT_VIEW,
         Permission.TRIAGE_VIEW,
         Permission.AUTOMATION_VIEW,
         Permission.THREAT_INTEL_VIEW,
     },
-
     UserRole.AUDITOR: {
         Permission.ALERT_VIEW,
         Permission.TRIAGE_VIEW,
@@ -213,6 +212,7 @@ class UserUpdate(BaseModel):
 # Authentication Functions
 # =============================================================================
 
+
 def hash_password(password: str) -> str:
     """
     Hash a password for storage.
@@ -224,8 +224,9 @@ def hash_password(password: str) -> str:
         Hashed password
     """
     import bcrypt
+
     salt = bcrypt.gensalt(rounds=AuthConfig.bcrypt_rounds)
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -240,11 +241,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         True if password matches
     """
     import bcrypt
+
     try:
-        return bcrypt.checkpw(
-            plain_password.encode('utf-8'),
-            hashed_password.encode('utf-8')
-        )
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
         return False
 
@@ -371,6 +370,7 @@ def decrypt_sensitive_data(encrypted_data: str) -> str:
 # Authorization Functions
 # =============================================================================
 
+
 def get_user_permissions(user_role: UserRole) -> Set[Permission]:
     """
     Get permissions for a user role.
@@ -435,8 +435,7 @@ def has_all_permissions(user: User, permissions: List[Permission]) -> bool:
 # =============================================================================
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 security = HTTPBearer()
 
@@ -492,6 +491,7 @@ async def require_permission(required_permission: Permission):
     Returns:
         Dependency function
     """
+
     async def check_permission(current_user: User = Depends(get_current_user)) -> User:
         if not has_permission(current_user, required_permission):
             raise HTTPException(
@@ -513,6 +513,7 @@ async def require_any_permission(*required_permissions: Permission):
     Returns:
         Dependency function
     """
+
     async def check_permissions(current_user: User = Depends(get_current_user)) -> User:
         if not has_any_permission(current_user, list(required_permissions)):
             raise HTTPException(
@@ -534,6 +535,7 @@ async def require_role(*roles: UserRole):
     Returns:
         Dependency function
     """
+
     async def check_role(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in roles:
             raise HTTPException(
@@ -548,6 +550,7 @@ async def require_role(*roles: UserRole):
 # =============================================================================
 # Admin User Creation
 # =============================================================================
+
 
 def create_admin_user() -> User:
     """
@@ -579,6 +582,7 @@ def create_admin_user() -> User:
 # =============================================================================
 # Audit Logging
 # =============================================================================
+
 
 class AuditAction(str, Enum):
     """Audit action types."""
