@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: security-triage
+  labels:
+    app: security-triage
+    component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app: security-triage
+    component: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: security-triage
+  labels:
+    app: security-triage
+    component: redis
+    version: "7"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: security-triage
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: security-triage
+        component: redis
+        version: "7"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          args:
+            - redis-server
+            - --maxmemory
+            - 200mb
+            - --maxmemory-policy
+            - allkeys-lru
+            - --requirepass
+            - $(REDIS_PASSWORD)
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: security-triage-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3

@@ -1,0 +1,332 @@
+{
+  "uid": "security-triage-overview",
+  "title": "Security Triage System - Overview",
+  "description": "Operational overview of the Security Alert Triage System including alert processing, service health, latency, errors, and notifications.",
+  "tags": ["security", "triage", "overview", "soc"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "15s", "30s", "1m", "5m"]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "query": "label_values(up, job)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Alert Processing Rate",
+      "description": "Incoming alerts processed per minute by the alert-ingestor service.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "scheme",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(http_requests_total{job=\"alert-ingestor\"}[1m]) * 60",
+          "legendFormat": "alerts/min",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(http_requests_total{job=\"alert-normalizer\"}[1m]) * 60",
+          "legendFormat": "normalized/min",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Service Health Status",
+      "description": "Up/down status for each service. 1 = healthy, 0 = down.",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 1, "color": "green" }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "up{job=~\"alert-ingestor|alert-normalizer|context-collector|threat-intel-aggregator|ai-triage-agent|similarity-search|llm-router|workflow-engine|decision-engine|notification-service|api-gateway\"}",
+          "legendFormat": "{{ job }}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Request Latency (p50 / p95 / p99)",
+      "description": "HTTP request latency percentiles broken down by service.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])))",
+          "legendFormat": "{{ job }} p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])))",
+          "legendFormat": "{{ job }} p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])))",
+          "legendFormat": "{{ job }} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Error Rate by Service",
+      "description": "Percentage of HTTP 5xx responses per service over a 5-minute window.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 50,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "mode": "none" }
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 0.01, "color": "yellow" },
+              { "value": 0.05, "color": "red" }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "sum by (job) (rate(http_requests_total{status=~\"5..\", job=~\"$service\"}[5m])) / sum by (job) (rate(http_requests_total{job=~\"$service\"}[5m]))",
+          "legendFormat": "{{ job }}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Active Database Connections",
+      "description": "Current number of active PostgreSQL connections vs. pool maximum.",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 16 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 200,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 60, "color": "yellow" },
+              { "value": 80, "color": "red" }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "pg_stat_database_numbackends{datname=\"security_triage\"}",
+          "legendFormat": "active connections",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Triage Processing Time",
+      "description": "Distribution of AI triage processing duration shown as a histogram heatmap.",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 16 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "scheme", "schemeId": "Oranges" },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "bucketSize": 1,
+        "combine": false,
+        "fillOpacity": 80,
+        "gradientMode": "scheme",
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "sum by (le) (rate(ai_triage_duration_seconds_bucket[5m]))",
+          "legendFormat": "{{ le }}",
+          "refId": "A",
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Notification Delivery Rate",
+      "description": "Rate of notifications delivered per minute, broken down by channel (email, slack, webhook, pagerduty).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "pointSize": 5,
+            "showPoints": "auto",
+            "stacking": { "mode": "normal" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "sum"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(notifications_delivered_total{channel=\"email\"}[5m]) * 60",
+          "legendFormat": "email",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(notifications_delivered_total{channel=\"slack\"}[5m]) * 60",
+          "legendFormat": "slack",
+          "refId": "B"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(notifications_delivered_total{channel=\"webhook\"}[5m]) * 60",
+          "legendFormat": "webhook",
+          "refId": "C"
+        },
+        {
+          "datasource": { "uid": "prometheus", "type": "prometheus" },
+          "expr": "rate(notifications_delivered_total{channel=\"pagerduty\"}[5m]) * 60",
+          "legendFormat": "pagerduty",
+          "refId": "D"
+        }
+      ]
+    }
+  ]
+}

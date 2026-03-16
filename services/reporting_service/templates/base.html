@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #333; line-height: 1.6; }
+        h1 { color: #1a237e; border-bottom: 2px solid #1a237e; padding-bottom: 10px; margin-bottom: 20px; font-size: 1.8em; }
+        h2 { color: #283593; margin-top: 30px; margin-bottom: 12px; font-size: 1.3em; }
+        .meta { color: #666; font-size: 0.9em; margin-bottom: 25px; }
+        .meta p { margin-bottom: 4px; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
+        th { background-color: #1a237e; color: white; font-weight: 600; }
+        tr:nth-child(even) { background-color: #f5f5f5; }
+        tr:hover { background-color: #e8eaf6; }
+        ul { margin: 10px 0 10px 20px; }
+        li { margin-bottom: 6px; }
+        .severity-critical { color: #d32f2f; font-weight: bold; }
+        .severity-high { color: #e64a19; font-weight: bold; }
+        .severity-medium { color: #f57c00; }
+        .severity-low { color: #388e3c; }
+        .severity-info { color: #1976d2; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; }
+        .badge-critical { background: #ffcdd2; color: #b71c1c; }
+        .badge-high { background: #ffe0b2; color: #e65100; }
+        .badge-medium { background: #fff9c4; color: #f57f17; }
+        .badge-low { background: #c8e6c9; color: #1b5e20; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 20px 0; }
+        .stat-card { background: #f5f5f5; border-radius: 8px; padding: 16px; text-align: center; border-left: 4px solid #1a237e; }
+        .stat-card .value { font-size: 2em; font-weight: bold; color: #1a237e; }
+        .stat-card .label { color: #666; font-size: 0.9em; margin-top: 4px; }
+        .footer { margin-top: 40px; font-size: 0.8em; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
+        @media print {
+            body { margin: 20px; }
+            .stat-card { break-inside: avoid; }
+            table { break-inside: auto; }
+            tr { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <div class="meta">
+        <p><strong>Report ID:</strong> {{ report_id }}</p>
+        <p><strong>Generated:</strong> {{ generated_at }}</p>
+        {% if period %}
+        <p><strong>Period:</strong> {{ period.start }} to {{ period.end }}</p>
+        {% endif %}
+        {% if alert_id %}
+        <p><strong>Alert ID:</strong> {{ alert_id }}</p>
+        {% endif %}
+    </div>
+
+    {% block content %}{% endblock %}
+
+    {% if recommendations %}
+    <h2>Recommendations</h2>
+    <ul>
+        {% for rec in recommendations %}
+        <li>{{ rec }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if insights %}
+    <h2>Insights</h2>
+    <ul>
+        {% for insight in insights %}
+        <li>{{ insight }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="footer">
+        <p>Security Alert Triage System &mdash; Auto-generated Report</p>
+        <p>Generated at {{ generated_at }} | Report ID: {{ report_id }}</p>
+    </div>
+</body>
+</html>

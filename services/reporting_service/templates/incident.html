@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if incident_details %}
+<h2>Incident Details</h2>
+<table>
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Alert ID</td><td>{{ incident_details.alert_id | default("N/A") }}</td></tr>
+    <tr><td>Type</td><td>{{ incident_details.type | default("N/A") }}</td></tr>
+    <tr>
+        <td>Severity</td>
+        <td>
+            {% set sev = incident_details.severity | default("unknown") %}
+            <span class="badge badge-{{ sev }}">{{ sev | upper }}</span>
+        </td>
+    </tr>
+    <tr><td>Status</td><td>{{ incident_details.status | default("N/A") | title }}</td></tr>
+    <tr><td>Title</td><td>{{ incident_details.title | default("N/A") }}</td></tr>
+    <tr><td>Description</td><td>{{ incident_details.description | default("N/A") }}</td></tr>
+    <tr><td>Source IP</td><td>{{ incident_details.source_ip | default("N/A") }}</td></tr>
+    <tr><td>Destination IP</td><td>{{ incident_details.destination_ip | default("N/A") }}</td></tr>
+    <tr><td>Asset ID</td><td>{{ incident_details.asset_id | default("N/A") }}</td></tr>
+    <tr><td>Created At</td><td>{{ incident_details.created_at | default("N/A") }}</td></tr>
+    {% if incident_details.error %}
+    <tr><td>Error</td><td style="color: #d32f2f;">{{ incident_details.error }}</td></tr>
+    {% endif %}
+    {% if incident_details.note %}
+    <tr><td>Note</td><td style="color: #f57c00;">{{ incident_details.note }}</td></tr>
+    {% endif %}
+</table>
+{% endif %}
+{% endblock %}

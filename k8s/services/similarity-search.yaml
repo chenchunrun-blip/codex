@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: similarity-search
+  namespace: security-triage
+  labels:
+    app: security-triage
+    component: similarity-search
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8006
+      targetPort: 8006
+      protocol: TCP
+      name: http
+  selector:
+    app: security-triage
+    component: similarity-search
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: similarity-search
+  namespace: security-triage
+  labels:
+    app: security-triage
+    component: similarity-search
+    version: latest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: security-triage
+      component: similarity-search
+  template:
+    metadata:
+      labels:
+        app: security-triage
+        component: similarity-search
+        version: latest
+    spec:
+      containers:
+        - name: similarity-search
+          image: security-triage/similarity-search:latest
+          ports:
+            - containerPort: 8006
+              name: http
+          envFrom:
+            - configMapRef:
+                name: security-triage-config
+            - secretRef:
+                name: security-triage-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3

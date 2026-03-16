@@ -1,0 +1,137 @@
+# AlertManager Rules for Security Triage System
+#
+# Covers service health, error rates, latency, queue backlog,
+# LLM routing failures, and database connection pool saturation.
+
+groups:
+  - name: service_health
+    interval: 15s
+    rules:
+      # -------------------------------------------------------
+      # ServiceDown - fires when any scrape target is unreachable
+      # -------------------------------------------------------
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: >-
+            The health endpoint for {{ $labels.job }}
+            (instance {{ $labels.instance }}) has been unreachable
+            for more than 1 minute.
+
+  - name: error_rates
+    interval: 15s
+    rules:
+      # -------------------------------------------------------
+      # HighErrorRate - HTTP 5xx responses exceed 5% of traffic
+      # -------------------------------------------------------
+      - alert: HighErrorRate
+        expr: >-
+          (
+            sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High HTTP 5xx error rate on {{ $labels.job }}"
+          description: >-
+            {{ $labels.job }} is returning server errors at
+            {{ $value | humanizePercentage }} of all requests
+            over the last 5 minutes.
+
+      # -------------------------------------------------------
+      # LLMRouterErrors - LLM routing error rate exceeds 10%
+      # -------------------------------------------------------
+      - alert: LLMRouterErrors
+        expr: >-
+          (
+            sum(rate(llm_router_errors_total[5m]))
+            /
+            sum(rate(llm_router_requests_total[5m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: ai_ops
+        annotations:
+          summary: "LLM router error rate exceeds 10%"
+          description: >-
+            {{ $value | humanizePercentage }} of LLM routing requests
+            are failing. Check model endpoint availability and
+            token quota limits.
+
+  - name: latency
+    interval: 15s
+    rules:
+      # -------------------------------------------------------
+      # HighLatency - p95 request latency exceeds 2 seconds
+      # -------------------------------------------------------
+      - alert: HighLatency
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High p95 latency on {{ $labels.job }}"
+          description: >-
+            The 95th-percentile request latency for {{ $labels.job }}
+            is {{ $value | humanizeDuration }}, exceeding the
+            2-second threshold.
+
+  - name: queue_backlog
+    interval: 30s
+    rules:
+      # -------------------------------------------------------
+      # AlertProcessingBacklog - queue depth growing for 10 min
+      # -------------------------------------------------------
+      - alert: AlertProcessingBacklog
+        expr: >-
+          delta(rabbitmq_queue_messages{queue=~"alert.*"}[10m]) > 0
+          and
+          rabbitmq_queue_messages{queue=~"alert.*"} > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: security_ops
+        annotations:
+          summary: "Alert processing queue backlog growing"
+          description: >-
+            Queue {{ $labels.queue }} has {{ $value }} messages and
+            has been growing for over 10 minutes. Consumer throughput
+            may be insufficient.
+
+  - name: database
+    interval: 30s
+    rules:
+      # -------------------------------------------------------
+      # DatabaseConnectionPoolExhausted - active conns > 80%
+      # -------------------------------------------------------
+      - alert: DatabaseConnectionPoolExhausted
+        expr: >-
+          (
+            pg_stat_database_numbackends{datname="security_triage"}
+            /
+            pg_settings_max_connections
+          ) > 0.80
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: >-
+            {{ $value | humanizePercentage }} of the PostgreSQL
+            connection pool is in use. Immediate action required
+            to prevent connection failures.

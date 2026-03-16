@@ -1,0 +1,473 @@
+# Copyright 2026 CCR <chenchunrun@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# =============================================================================
+# Docker Compose — Development / POC Environment
+# =============================================================================
+#
+# Lightweight setup for local development and POC validation.
+# Includes the full core alert-processing pipeline + infrastructure.
+# Source code is bind-mounted read-only so rebuilds pick up changes fast.
+#
+# Quick start:
+#   cp .env.dev .env                                                    # defaults
+#   docker compose -f docker-compose.dev.yml up -d                      # core stack
+#   docker compose -f docker-compose.dev.yml --profile monitoring up -d # + Prometheus/Grafana
+#   docker compose -f docker-compose.dev.yml logs -f workflow-engine    # tail logs
+#   docker compose -f docker-compose.dev.yml down -v                    # tear down
+#
+# Service map (host ports):
+#   Infrastructure:
+#     PostgreSQL         :5434   Main database
+#     Redis              :6381   Cache / dedup / sessions
+#     RabbitMQ           :5673   AMQP  |  :15673  Management UI
+#     ChromaDB           :8001   Vector store
+#
+#   Core pipeline:
+#     Alert Ingestor     :9001   Alert ingestion API
+#     Alert Normalizer   :9002   Format normalization
+#     Context Collector  :9003   Alert enrichment
+#     Threat Intel       :9004   Threat intelligence
+#     LLM Router         :9005   Model routing
+#     AI Triage Agent    :9006   AI-powered triage
+#     Similarity Search  :9007   Vector similarity
+#     Workflow Engine    :9008   Workflow orchestration
+#     Automation Orch.   :9009   SOAR playbooks
+#     Notification Svc   :9010   Notification dispatch
+#
+#   Monitoring (--profile monitoring):
+#     Prometheus         :9090   Metrics collection
+#     Grafana            :3001   Dashboards (admin/admin)
+# =============================================================================
+
+# ===========================================================================
+# Shared YAML anchors (referenced via <<: *… in services below)
+# ===========================================================================
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://triage_user:${DB_PASSWORD:-dev_password}@postgres:5432/security_triage
+  REDIS_URL: redis://:${REDIS_PASSWORD:-dev_password}@redis:6379/0
+  RABBITMQ_URL: amqp://admin:${RABBITMQ_PASSWORD:-dev_password}@rabbitmq:5672/
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-not-for-production}
+  HOST: 0.0.0.0
+  PORT: 8000
+  LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+  DEBUG: "true"
+
+x-svc-healthcheck: &svc-healthcheck
+  test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 15s
+
+services:
+
+  # ===========================================================================
+  # Infrastructure
+  # ===========================================================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: dev-postgres
+    environment:
+      POSTGRES_DB: security_triage
+      POSTGRES_USER: triage_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: pg_isready -U triage_user -d security_triage
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: dev-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-dev_password}
+    ports:
+      - "${REDIS_PORT:-6381}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: redis-cli -a ${REDIS_PASSWORD:-dev_password} ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: dev-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-dev_password}
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "${RABBITMQ_PORT:-5673}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15673}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: dev-chromadb
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Stage 1 — Ingestion
+  # ===========================================================================
+
+  alert-ingestor:
+    build:
+      context: .
+      dockerfile: services/alert_ingestor/Dockerfile
+    container_name: dev-alert-ingestor
+    environment:
+      <<: *common-env
+    ports:
+      - "9001:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/alert_ingestor:/app/services/alert_ingestor:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  alert-normalizer:
+    build:
+      context: .
+      dockerfile: services/alert_normalizer/Dockerfile
+    container_name: dev-alert-normalizer
+    environment:
+      <<: *common-env
+    ports:
+      - "9002:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/alert_normalizer:/app/services/alert_normalizer:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Stage 2 — Enrichment
+  # ===========================================================================
+
+  context-collector:
+    build:
+      context: .
+      dockerfile: services/context_collector/Dockerfile
+    container_name: dev-context-collector
+    environment:
+      <<: *common-env
+    ports:
+      - "9003:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/context_collector:/app/services/context_collector:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  threat-intel-aggregator:
+    build:
+      context: .
+      dockerfile: services/threat_intel_aggregator/Dockerfile
+    container_name: dev-threat-intel
+    environment:
+      <<: *common-env
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-mock}
+      ABUSECH_API_KEY: ${ABUSECH_API_KEY:-mock}
+    ports:
+      - "9004:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/threat_intel_aggregator:/app/services/threat_intel_aggregator:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Stage 3 — AI Analysis
+  # ===========================================================================
+
+  llm-router:
+    build:
+      context: .
+      dockerfile: services/llm_router/Dockerfile
+    container_name: dev-llm-router
+    environment:
+      <<: *common-env
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-http://internal-maas.deepseek/v1}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-mock-key}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_API_KEY: ${QWEN_API_KEY:-mock-key}
+    ports:
+      - "9005:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/llm_router:/app/services/llm_router:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  ai-triage-agent:
+    build:
+      context: .
+      dockerfile: services/ai_triage_agent/Dockerfile
+    container_name: dev-ai-triage-agent
+    environment:
+      <<: *common-env
+      LLM_ROUTER_URL: http://llm-router:8000
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-http://internal-maas.deepseek/v1}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-mock-key}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_API_KEY: ${QWEN_API_KEY:-mock-key}
+    ports:
+      - "9006:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/ai_triage_agent:/app/services/ai_triage_agent:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:   { condition: service_healthy }
+      redis:      { condition: service_healthy }
+      rabbitmq:   { condition: service_healthy }
+      llm-router: { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  similarity-search:
+    build:
+      context: .
+      dockerfile: services/similarity_search/Dockerfile
+    container_name: dev-similarity-search
+    environment:
+      <<: *common-env
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: 8000
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+    ports:
+      - "9007:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/similarity_search:/app/services/similarity_search:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+      chromadb:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Stage 4 — Workflow & Automation
+  # ===========================================================================
+
+  workflow-engine:
+    build:
+      context: .
+      dockerfile: services/workflow_engine/Dockerfile
+    container_name: dev-workflow-engine
+    environment:
+      <<: *common-env
+    ports:
+      - "9008:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/workflow_engine:/app/services/workflow_engine:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  automation-orchestrator:
+    build:
+      context: .
+      dockerfile: services/automation_orchestrator/Dockerfile
+    container_name: dev-automation-orchestrator
+    environment:
+      <<: *common-env
+    ports:
+      - "9009:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/automation_orchestrator:/app/services/automation_orchestrator:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification_service/Dockerfile
+    container_name: dev-notification-service
+    environment:
+      <<: *common-env
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-dev@localhost}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-dev}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-http://localhost/noop}
+    ports:
+      - "9010:8000"
+    volumes:
+      - ./services/shared:/app/services/shared:ro
+      - ./services/notification_service:/app/services/notification_service:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      rabbitmq:  { condition: service_healthy }
+    healthcheck: *svc-healthcheck
+    networks: [dev-network]
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Monitoring (optional — activate with --profile monitoring)
+  # ===========================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dev-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=3d'
+    healthcheck:
+      test: wget -q --spider http://localhost:9090/-/healthy
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [dev-network]
+    restart: unless-stopped
+    profiles: [monitoring]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dev-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: wget -q --spider http://localhost:3000/api/health
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [dev-network]
+    restart: unless-stopped
+    profiles: [monitoring]
+
+# =============================================================================
+# Volumes & Networks
+# =============================================================================
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  chroma_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  dev-network:
+    driver: bridge

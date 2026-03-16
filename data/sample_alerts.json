@@ -1,0 +1,48 @@
+{
+  "alerts": [
+    {
+      "alert_id": "ALT-2025-001",
+      "timestamp": "2025-01-04T12:00:00Z",
+      "alert_type": "malware",
+      "source_ip": "45.33.32.156",
+      "target_ip": "10.0.0.50",
+      "severity": "high",
+      "description": "Detected suspicious file execution with known malware hash",
+      "file_hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+      "asset_id": "WS-050",
+      "user_id": "user123"
+    },
+    {
+      "alert_id": "ALT-2025-002",
+      "timestamp": "2025-01-04T11:30:00Z",
+      "alert_type": "brute_force",
+      "source_ip": "192.168.1.200",
+      "target_ip": "10.0.0.10",
+      "severity": "medium",
+      "description": "Multiple failed login attempts detected",
+      "asset_id": "SRV-010",
+      "user_id": "admin"
+    },
+    {
+      "alert_id": "ALT-2025-003",
+      "timestamp": "2025-01-04T10:15:00Z",
+      "alert_type": "anomaly",
+      "source_ip": "10.0.0.100",
+      "target_ip": "10.0.0.20",
+      "severity": "low",
+      "description": "Unusual data transfer pattern detected",
+      "asset_id": "WS-100"
+    },
+    {
+      "alert_id": "ALT-2025-004",
+      "timestamp": "2025-01-04T09:45:00Z",
+      "alert_type": "data_exfiltration",
+      "source_ip": "103.224.212.222",
+      "target_ip": "10.0.0.30",
+      "severity": "critical",
+      "description": "Large volume data transfer to external IP",
+      "asset_id": "DB-030",
+      "user_id": "user456"
+    }
+  ]
+}
