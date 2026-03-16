@@ -52,6 +52,7 @@ from shared.metrics import (
     MetricsCollector,
 )
 from shared.utils import Config, get_logger
+from shared.utils.prometheus import setup_prometheus
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -178,6 +179,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus metrics
+setup_prometheus(app, "alert-ingestor")
 
 # CORS middleware
 app.add_middleware(

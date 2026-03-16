@@ -72,6 +72,7 @@ from shared.metrics import (
     MetricsCollector,
 )
 from shared.utils import Config, get_logger
+from shared.utils.prometheus import setup_prometheus
 
 logger = get_logger(__name__)
 config = Config()
@@ -1857,6 +1858,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus metrics
+setup_prometheus(app, "workflow-engine")
 
 app.add_middleware(
     CORSMiddleware,

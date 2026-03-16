@@ -41,6 +41,7 @@ from shared.models import (
     SuccessResponse,
 )
 from shared.utils import Config, get_logger
+from shared.utils.prometheus import setup_prometheus
 
 # Import processors
 from services.alert_normalizer.processors import (
@@ -373,6 +374,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus metrics
+setup_prometheus(app, "alert-normalizer")
 
 app.add_middleware(
     CORSMiddleware,

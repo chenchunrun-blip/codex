@@ -27,6 +27,7 @@ from shared.database import DatabaseManager, close_database, get_database_manage
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
+from sqlalchemy import text
 
 logger = get_logger(__name__)
 config = Config()
@@ -91,6 +92,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not connect message publisher: {e}")
 
+    # Load persisted configuration from database
+    await _load_config_from_db()
+
     logger.info("Configuration service started successfully")
 
     yield
@@ -137,6 +141,122 @@ async def publish_config_change(key: str, old_value: Any, new_value: Any, change
         logger.info(f"Config change event published for key: {key}")
     except Exception as e:
         logger.error(f"Failed to publish config change event: {e}")
+
+
+async def _persist_config(key: str, value: Any, changed_by: str = "system"):
+    """Persist a configuration value to the service_config database table.
+
+    Args:
+        key: Configuration key name
+        value: Configuration value (will be JSON-serialized)
+        changed_by: Identity of the actor making the change
+    """
+    if not db_manager:
+        logger.debug("No database manager available, skipping config persistence")
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            # Upsert: try update first, insert if not exists
+            result = await session.execute(
+                text("""
+                    UPDATE service_config
+                    SET config_value = :value, updated_by = :changed_by, updated_at = NOW()
+                    WHERE config_key = :key
+                """),
+                {
+                    "key": key,
+                    "value": json.dumps(value),
+                    "changed_by": changed_by,
+                },
+            )
+
+            if result.rowcount == 0:
+                await session.execute(
+                    text("""
+                        INSERT INTO service_config (id, config_key, config_value, updated_by, created_at, updated_at)
+                        VALUES (:id, :key, :value, :changed_by, NOW(), NOW())
+                    """),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "key": key,
+                        "value": json.dumps(value),
+                        "changed_by": changed_by,
+                    },
+                )
+
+            await session.commit()
+            logger.info(f"Configuration persisted to database: {key}")
+
+    except Exception as e:
+        logger.error(f"Failed to persist configuration to database: {e}", exc_info=True)
+
+
+async def _persist_config_history(key: str, old_value: Any, new_value: Any, changed_by: str):
+    """Persist a configuration change history record to the database.
+
+    Args:
+        key: Configuration key name
+        old_value: Previous configuration value
+        new_value: New configuration value
+        changed_by: Identity of the actor making the change
+    """
+    if not db_manager:
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO service_config_history
+                        (id, config_key, old_value, new_value, changed_by, changed_at)
+                    VALUES (:id, :key, :old_value, :new_value, :changed_by, NOW())
+                """),
+                {
+                    "id": str(uuid.uuid4()),
+                    "key": key,
+                    "old_value": json.dumps(old_value),
+                    "new_value": json.dumps(new_value),
+                    "changed_by": changed_by,
+                },
+            )
+            await session.commit()
+            logger.debug(f"Configuration change history persisted for key: {key}")
+
+    except Exception as e:
+        logger.error(f"Failed to persist config change history: {e}", exc_info=True)
+
+
+async def _load_config_from_db():
+    """Load all configuration from the database into the in-memory config store.
+
+    Called on startup to restore persisted configuration values.
+    """
+    if not db_manager:
+        logger.debug("No database manager available, using default config")
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            result = await session.execute(
+                text("SELECT config_key, config_value FROM service_config")
+            )
+            rows = result.fetchall()
+
+            loaded_count = 0
+            for row in rows:
+                key = row[0]
+                try:
+                    value = json.loads(row[1])
+                    config_store[key] = value
+                    loaded_count += 1
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse config value for key '{key}': {e}")
+
+            logger.info(f"Loaded {loaded_count} configuration entries from database")
+
+    except Exception as e:
+        logger.warning(f"Failed to load config from database, using defaults: {e}")
 
 
 def record_config_change(key: str, old_value: Any, new_value: Any, changed_by: str):
@@ -190,8 +310,12 @@ async def update_config(key: str, value: Dict[str, Any], changed_by: str = "syst
         # Update configuration
         config_store[key] = value
 
-        # Record change
+        # Persist to database
+        await _persist_config(key, value, changed_by)
+
+        # Record change in memory and database
         record_config_change(key, old_value, value, changed_by)
+        await _persist_config_history(key, old_value, value, changed_by)
 
         # Publish configuration change event
         await publish_config_change(key, old_value, value, changed_by)
@@ -252,7 +376,12 @@ async def reset_config(key: str, changed_by: str = "system"):
 
         config_store[key] = new_value
 
+        # Persist reset value to database
+        await _persist_config(key, new_value, changed_by)
+
+        # Record change in memory and database
         record_config_change(key, old_value, new_value, changed_by)
+        await _persist_config_history(key, old_value, new_value, changed_by)
 
         await publish_config_change(key, old_value, new_value, changed_by)
 
@@ -273,20 +402,64 @@ async def reset_config(key: str, changed_by: str = "system"):
 
 @app.get("/api/v1/config/{key}/history", response_model=Dict[str, Any])
 async def get_config_history(key: str, limit: int = 50):
-    """Get configuration change history."""
-    history = [h for h in config_history if h["key"] == key]
-
-    # Sort by timestamp descending
-    history = sorted(history, key=lambda x: x["timestamp"], reverse=True)
-
-    # Limit results
-    history = history[:limit]
+    """Get configuration change history from database, falling back to in-memory."""
+    # Try database first
+    db_history = await _query_config_history_from_db(key, limit)
+    if db_history is not None:
+        history = db_history
+    else:
+        # Fall back to in-memory history
+        history = [h for h in config_history if h["key"] == key]
+        history = sorted(history, key=lambda x: x["timestamp"], reverse=True)
+        history = history[:limit]
 
     return {
         "success": True,
         "data": {"key": key, "history": history, "total": len(history)},
         "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
     }
+
+
+async def _query_config_history_from_db(key: str, limit: int = 50) -> Optional[List[Dict[str, Any]]]:
+    """Query configuration change history from the database.
+
+    Args:
+        key: Configuration key to query history for
+        limit: Maximum number of history entries to return
+
+    Returns:
+        List of history entries, or None if database is unavailable
+    """
+    if not db_manager:
+        return None
+
+    try:
+        async with db_manager.get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT config_key, old_value, new_value, changed_by, changed_at
+                    FROM service_config_history
+                    WHERE config_key = :key
+                    ORDER BY changed_at DESC
+                    LIMIT :limit
+                """),
+                {"key": key, "limit": limit},
+            )
+            rows = result.fetchall()
+            return [
+                {
+                    "key": row[0],
+                    "old_value": json.loads(row[1]) if row[1] else None,
+                    "new_value": json.loads(row[2]) if row[2] else None,
+                    "changed_by": row[3],
+                    "timestamp": row[4].isoformat() if row[4] else None,
+                }
+                for row in rows
+            ]
+
+    except Exception as e:
+        logger.warning(f"Failed to query config history from database: {e}")
+        return None
 
 
 @app.post("/api/v1/config/export", response_model=Dict[str, Any])
@@ -360,10 +533,14 @@ async def import_config(
                     merged = {**old_value, **value}
                     config_store[key] = merged
                     record_config_change(key, old_value, merged, changed_by)
+                    await _persist_config(key, merged, changed_by)
+                    await _persist_config_history(key, old_value, merged, changed_by)
                 else:
                     # Replace entirely
                     config_store[key] = value
                     record_config_change(key, old_value, value, changed_by)
+                    await _persist_config(key, value, changed_by)
+                    await _persist_config_history(key, old_value, value, changed_by)
 
                 imported_keys.append(key)
 

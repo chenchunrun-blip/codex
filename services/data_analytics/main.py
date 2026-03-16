@@ -15,6 +15,7 @@
 """Data Analytics Service - Provides analytics and metrics for security alerts."""
 
 import asyncio
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -40,6 +41,7 @@ from shared.models import (
     TriageResult,
 )
 from shared.utils import Config, get_logger
+from sqlalchemy import text
 
 logger = get_logger(__name__)
 config = Config()
@@ -135,6 +137,40 @@ app.add_middleware(
 )
 
 
+async def _persist_trend_point(metric_type: str, value: float, metadata: Dict):
+    """Persist a trend data point to the analytics_trends database table.
+
+    Args:
+        metric_type: Type of metric (e.g., 'alert_volume', 'triage_accuracy')
+        value: Numeric value of the trend data point
+        metadata: Additional metadata to store with the trend point
+    """
+    if not db_manager:
+        logger.debug("No database manager available, skipping trend persistence")
+        return
+
+    try:
+        async with db_manager.get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO analytics_trends
+                        (id, metric_type, metric_value, metadata, recorded_at)
+                    VALUES (:id, :metric_type, :metric_value, :metadata, NOW())
+                """),
+                {
+                    "id": str(uuid.uuid4()),
+                    "metric_type": metric_type,
+                    "metric_value": value,
+                    "metadata": json.dumps(metadata),
+                },
+            )
+            await session.commit()
+            logger.debug(f"Trend point persisted: {metric_type}={value}")
+
+    except Exception as e:
+        logger.error(f"Failed to persist trend point: {e}", exc_info=True)
+
+
 async def consume_analytics_events():
     """Consume analytics events from message queue."""
 
@@ -199,6 +235,13 @@ async def update_trends_periodically():
                 TrendData(timestamp=now, value=alert_volume, label=now.strftime("%H:%M"))
             )
 
+            # Persist alert volume trend point to database
+            await _persist_trend_point(
+                "alert_volume",
+                alert_volume,
+                {"by_severity": metrics_cache["alerts"]["by_severity"].copy()},
+            )
+
             # Keep only last 24 hours of data
             cutoff = now - timedelta(hours=24)
             trends_cache["alert_volume"] = [
@@ -218,9 +261,32 @@ async def update_trends_periodically():
                     )
                 )
 
+                # Persist triage accuracy trend point to database
+                await _persist_trend_point(
+                    "triage_accuracy",
+                    accuracy * 100,
+                    {
+                        "triage_count": metrics_cache["triage"]["triage_count"],
+                        "accurate": metrics_cache["triage"]["accurate"],
+                    },
+                )
+
                 trends_cache["triage_accuracy"] = [
                     t for t in trends_cache["triage_accuracy"] if t.timestamp > cutoff
                 ]
+
+            # Automation rate trend
+            playbook_count = metrics_cache["automation"]["playbooks_executed"]
+            if playbook_count > 0:
+                automation_rate = metrics_cache["automation"]["successful"] / playbook_count * 100
+                await _persist_trend_point(
+                    "automation_rate",
+                    automation_rate,
+                    {
+                        "playbooks_executed": playbook_count,
+                        "successful": metrics_cache["automation"]["successful"],
+                    },
+                )
 
             logger.debug("Trends updated successfully")
 
@@ -576,6 +642,163 @@ async def get_trends(metric_type: str, time_range: TimeRange = Query(TimeRange.L
     except Exception as e:
         logger.error(f"Failed to get trends: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get trends: {str(e)}")
+
+
+@app.get("/api/v1/analytics/history/{metric_type}", response_model=Dict[str, Any])
+async def get_trend_history(
+    metric_type: str,
+    start: Optional[str] = Query(None, description="Start time in ISO format"),
+    end: Optional[str] = Query(None, description="End time in ISO format"),
+    limit: int = Query(100, description="Maximum number of data points to return"),
+):
+    """Query historical trend data from the database with time range filtering.
+
+    Args:
+        metric_type: Type of metric to query (e.g., alert_volume, triage_accuracy, automation_rate)
+        start: Optional start time filter (ISO format)
+        end: Optional end time filter (ISO format)
+        limit: Maximum number of records to return
+    """
+    try:
+        if not db_manager:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        # Parse time range
+        if start:
+            start_date = datetime.fromisoformat(start)
+        else:
+            start_date = datetime.utcnow() - timedelta(hours=24)
+
+        if end:
+            end_date = datetime.fromisoformat(end)
+        else:
+            end_date = datetime.utcnow()
+
+        async with db_manager.get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT metric_type, metric_value, metadata, recorded_at
+                    FROM analytics_trends
+                    WHERE metric_type = :metric_type
+                      AND recorded_at BETWEEN :start AND :end
+                    ORDER BY recorded_at DESC
+                    LIMIT :limit
+                """),
+                {
+                    "metric_type": metric_type,
+                    "start": start_date,
+                    "end": end_date,
+                    "limit": limit,
+                },
+            )
+            rows = result.fetchall()
+
+        data_points = [
+            {
+                "metric_type": row[0],
+                "value": float(row[1]),
+                "metadata": json.loads(row[2]) if row[2] else {},
+                "recorded_at": row[3].isoformat() if row[3] else None,
+            }
+            for row in rows
+        ]
+
+        return {
+            "success": True,
+            "data": {
+                "metric_type": metric_type,
+                "data_points": data_points,
+                "total": len(data_points),
+                "time_range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+            },
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to query trend history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to query trend history: {str(e)}")
+
+
+@app.get("/api/v1/analytics/summary", response_model=Dict[str, Any])
+async def get_analytics_summary():
+    """Provide a summary of key analytics metrics.
+
+    Combines in-memory metrics cache with database-sourced aggregate data
+    to give an overview of system performance.
+    """
+    try:
+        # Build summary from in-memory cache
+        triage_count = metrics_cache["triage"]["triage_count"]
+        playbook_count = metrics_cache["automation"]["playbooks_executed"]
+
+        summary = {
+            "alerts": {
+                "total": metrics_cache["alerts"]["total"],
+                "triaged": metrics_cache["alerts"]["triaged"],
+                "by_severity": metrics_cache["alerts"]["by_severity"].copy(),
+            },
+            "triage": {
+                "total_triaged": triage_count,
+                "ai_triaged": metrics_cache["triage"]["ai_triaged"],
+                "human_triaged": metrics_cache["triage"]["human_triaged"],
+                "avg_triage_time_seconds": (
+                    metrics_cache["triage"]["total_triage_time"] / triage_count
+                    if triage_count > 0
+                    else 0.0
+                ),
+                "accuracy_score": (
+                    metrics_cache["triage"]["accurate"] / triage_count
+                    if triage_count > 0
+                    else 0.0
+                ),
+            },
+            "automation": {
+                "playbooks_executed": playbook_count,
+                "actions_executed": metrics_cache["automation"]["actions_executed"],
+                "success_rate": (
+                    metrics_cache["automation"]["successful"] / playbook_count
+                    if playbook_count > 0
+                    else 0.0
+                ),
+                "time_saved_hours": metrics_cache["automation"]["actions_executed"] * 0.5,
+            },
+        }
+
+        # Enrich with database metrics if available
+        if db_manager:
+            try:
+                async with db_manager.get_session() as session:
+                    # Total alerts from database
+                    db_total = await session.execute(
+                        text("SELECT COUNT(*) FROM alerts")
+                    )
+                    summary["alerts"]["total_in_db"] = db_total.scalar() or 0
+
+                    # Trend data points count
+                    trend_count = await session.execute(
+                        text("SELECT COUNT(*) FROM analytics_trends")
+                    )
+                    summary["trend_data_points"] = trend_count.scalar() or 0
+
+            except Exception as e:
+                logger.warning(f"Failed to enrich summary from database: {e}")
+
+        return {
+            "success": True,
+            "data": summary,
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to generate analytics summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate analytics summary: {str(e)}"
+        )
 
 
 @app.get("/health")

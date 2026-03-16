@@ -27,12 +27,14 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from jinja2 import Template
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from shared.database import DatabaseManager, get_database_manager
 from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import ResponseMeta, SuccessResponse
 from shared.utils import Config, get_logger
+from shared.utils.prometheus import setup_prometheus
 
 logger = get_logger(__name__)
 config = Config()
@@ -53,6 +55,10 @@ TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
 # Escalation configuration
 ESCALATION_DELAY_SECONDS = int(os.getenv("ESCALATION_DELAY_SECONDS", "300"))  # 5 min
 MAX_ESCALATION_LEVEL = int(os.getenv("MAX_ESCALATION_LEVEL", "3"))
+
+# Throttle configuration
+THROTTLE_WINDOW_SECONDS = int(os.getenv("THROTTLE_WINDOW_SECONDS", "3600"))
+THROTTLE_MAX_PER_WINDOW = int(os.getenv("THROTTLE_MAX_PER_WINDOW", "20"))
 
 db_manager: DatabaseManager = None
 consumer: MessageConsumer = None
@@ -121,6 +127,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus metrics
+setup_prometheus(app, "notification-service")
 
 app.add_middleware(
     CORSMiddleware,
@@ -421,6 +430,171 @@ async def send_in_app(
 # Track pending acknowledgements: notification_id -> {details}
 _pending_acks: Dict[str, Dict[str, Any]] = {}
 
+# Track recent sends per recipient for throttling
+_throttle_tracker: Dict[str, List[datetime]] = {}
+
+# ---------------------------------------------------------------------------
+# Notification templates (Jinja2)
+# ---------------------------------------------------------------------------
+
+NOTIFICATION_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "alert_triggered": {
+        "subject": "[{{ severity | upper }}] Security Alert: {{ alert_type }} ({{ alert_id }})",
+        "body": (
+            "Security Alert Triggered\n"
+            "========================\n"
+            "Alert ID:    {{ alert_id }}\n"
+            "Type:        {{ alert_type }}\n"
+            "Severity:    {{ severity }}\n"
+            "Description: {{ description }}\n"
+            "Source IP:   {{ source_ip }}\n"
+            "Target IP:   {{ target_ip }}\n"
+            "Timestamp:   {{ timestamp }}\n"
+            "\n"
+            "Please investigate this alert promptly."
+        ),
+        "html_body": (
+            "<h2>Security Alert Triggered</h2>"
+            "<table>"
+            "<tr><td><strong>Alert ID</strong></td><td>{{ alert_id }}</td></tr>"
+            "<tr><td><strong>Type</strong></td><td>{{ alert_type }}</td></tr>"
+            "<tr><td><strong>Severity</strong></td><td>{{ severity }}</td></tr>"
+            "<tr><td><strong>Description</strong></td><td>{{ description }}</td></tr>"
+            "<tr><td><strong>Source IP</strong></td><td>{{ source_ip }}</td></tr>"
+            "<tr><td><strong>Target IP</strong></td><td>{{ target_ip }}</td></tr>"
+            "<tr><td><strong>Timestamp</strong></td><td>{{ timestamp }}</td></tr>"
+            "</table>"
+            "<p>Please investigate this alert promptly.</p>"
+        ),
+    },
+    "escalation_warning": {
+        "subject": "[ESCALATION L{{ level }}] Alert {{ alert_id }} - {{ severity | upper }}",
+        "body": (
+            "Escalation Warning\n"
+            "===================\n"
+            "Alert ID:           {{ alert_id }}\n"
+            "Severity:           {{ severity }}\n"
+            "Escalation Level:   {{ level }}\n"
+            "Elapsed Time:       {{ elapsed_time }}\n"
+            "Original Assignee:  {{ original_assignee }}\n"
+            "\n"
+            "This alert has not been acknowledged and is being escalated."
+        ),
+        "html_body": (
+            "<h2>Escalation Warning</h2>"
+            "<table>"
+            "<tr><td><strong>Alert ID</strong></td><td>{{ alert_id }}</td></tr>"
+            "<tr><td><strong>Severity</strong></td><td>{{ severity }}</td></tr>"
+            "<tr><td><strong>Escalation Level</strong></td><td>{{ level }}</td></tr>"
+            "<tr><td><strong>Elapsed Time</strong></td><td>{{ elapsed_time }}</td></tr>"
+            "<tr><td><strong>Original Assignee</strong></td><td>{{ original_assignee }}</td></tr>"
+            "</table>"
+            "<p>This alert has not been acknowledged and is being escalated.</p>"
+        ),
+    },
+    "triage_complete": {
+        "subject": "Triage Complete: {{ alert_id }} - Risk {{ risk_level | upper }} ({{ risk_score }})",
+        "body": (
+            "Triage Complete\n"
+            "================\n"
+            "Alert ID:       {{ alert_id }}\n"
+            "Risk Score:     {{ risk_score }}\n"
+            "Risk Level:     {{ risk_level }}\n"
+            "Confidence:     {{ confidence }}\n"
+            "Recommendation: {{ recommendation }}\n"
+            "Analyst:        {{ analyst }}\n"
+            "\n"
+            "The triage process has been completed for this alert."
+        ),
+        "html_body": (
+            "<h2>Triage Complete</h2>"
+            "<table>"
+            "<tr><td><strong>Alert ID</strong></td><td>{{ alert_id }}</td></tr>"
+            "<tr><td><strong>Risk Score</strong></td><td>{{ risk_score }}</td></tr>"
+            "<tr><td><strong>Risk Level</strong></td><td>{{ risk_level }}</td></tr>"
+            "<tr><td><strong>Confidence</strong></td><td>{{ confidence }}</td></tr>"
+            "<tr><td><strong>Recommendation</strong></td><td>{{ recommendation }}</td></tr>"
+            "<tr><td><strong>Analyst</strong></td><td>{{ analyst }}</td></tr>"
+            "</table>"
+            "<p>The triage process has been completed for this alert.</p>"
+        ),
+    },
+    "false_positive": {
+        "subject": "False Positive: Alert {{ alert_id }} Closed",
+        "body": (
+            "False Positive Notification\n"
+            "===========================\n"
+            "Alert ID: {{ alert_id }}\n"
+            "Analyst:  {{ analyst }}\n"
+            "Reason:   {{ reason }}\n"
+            "\n"
+            "This alert has been classified as a false positive and closed."
+        ),
+        "html_body": (
+            "<h2>False Positive Notification</h2>"
+            "<table>"
+            "<tr><td><strong>Alert ID</strong></td><td>{{ alert_id }}</td></tr>"
+            "<tr><td><strong>Analyst</strong></td><td>{{ analyst }}</td></tr>"
+            "<tr><td><strong>Reason</strong></td><td>{{ reason }}</td></tr>"
+            "</table>"
+            "<p>This alert has been classified as a false positive and closed.</p>"
+        ),
+    },
+}
+
+
+def render_template(template_name: str, context: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Render a notification template with the given context variables.
+
+    Args:
+        template_name: Name of the template to render
+        context: Template variables to substitute
+
+    Returns:
+        Dict with 'subject', 'body', and 'html_body' keys
+
+    Raises:
+        ValueError: If template_name is not found
+    """
+    if template_name not in NOTIFICATION_TEMPLATES:
+        raise ValueError(
+            f"Unknown template: {template_name}. "
+            f"Available templates: {list(NOTIFICATION_TEMPLATES.keys())}"
+        )
+
+    template_def = NOTIFICATION_TEMPLATES[template_name]
+    return {
+        "subject": Template(template_def["subject"]).render(**context),
+        "body": Template(template_def["body"]).render(**context),
+        "html_body": Template(template_def["html_body"]).render(**context),
+    }
+
+
+def _check_throttle(recipient: str) -> bool:
+    """
+    Check if a recipient has exceeded the notification rate limit.
+
+    Args:
+        recipient: Recipient identifier (email, user ID, webhook URL, etc.)
+
+    Returns:
+        True if the recipient is throttled, False otherwise
+    """
+    now = datetime.utcnow()
+    window_start = now.timestamp() - THROTTLE_WINDOW_SECONDS
+
+    # Clean up old entries and count recent sends
+    if recipient in _throttle_tracker:
+        _throttle_tracker[recipient] = [
+            ts for ts in _throttle_tracker[recipient]
+            if ts.timestamp() > window_start
+        ]
+    else:
+        _throttle_tracker[recipient] = []
+
+    return len(_throttle_tracker[recipient]) >= THROTTLE_MAX_PER_WINDOW
+
 
 async def send_with_escalation(
     channels: List[NotificationChannel],
@@ -503,36 +677,51 @@ async def send_notification(
 ) -> Dict[str, Any]:
     """Send notification via specified channel."""
     try:
+        # Check throttle before sending
+        if _check_throttle(recipient):
+            logger.warning(
+                f"Recipient throttled: {recipient}",
+                extra={"channel": channel.value, "recipient": recipient},
+            )
+            return {
+                "success": False,
+                "channel": channel.value,
+                "error": "Recipient throttled",
+                "throttled": True,
+            }
+
+        result = None
+
         if channel == NotificationChannel.EMAIL:
-            return await send_email(recipient, subject, message)
+            result = await send_email(recipient, subject, message)
 
         elif channel == NotificationChannel.SLACK:
-            return await send_slack(recipient, message)
+            result = await send_slack(recipient, message)
 
         elif channel == NotificationChannel.WEBHOOK:
-            return await send_webhook(recipient, data or {"message": message, "subject": subject})
+            result = await send_webhook(recipient, data or {"message": message, "subject": subject})
 
         elif channel == NotificationChannel.SMS:
-            return await send_sms(recipient, message)
+            result = await send_sms(recipient, message)
 
         elif channel == NotificationChannel.IN_APP:
-            return await send_in_app(recipient, subject, message, priority)
+            result = await send_in_app(recipient, subject, message, priority)
 
         elif channel == NotificationChannel.DINGTALK:
             at_mobiles = data.get("at_mobiles") if data else None
             at_all = data.get("at_all", False) if data else False
-            return await send_dingtalk(recipient, message, at_mobiles, at_all)
+            result = await send_dingtalk(recipient, message, at_mobiles, at_all)
 
         elif channel == NotificationChannel.WECHAT_WORK:
             mentioned_list = data.get("mentioned_list") if data else None
-            return await send_wechat_work(recipient, message, mentioned_list)
+            result = await send_wechat_work(recipient, message, mentioned_list)
 
         elif channel == NotificationChannel.TEAMS:
-            return await send_teams(recipient, subject, message)
+            result = await send_teams(recipient, subject, message)
 
         elif channel == NotificationChannel.PAGERDUTY:
             pd_data = data or {}
-            return await send_pagerduty(
+            result = await send_pagerduty(
                 api_key=pd_data.get("api_key", ""),
                 routing_key=pd_data.get("routing_key", ""),
                 event_action=pd_data.get("event_action", "trigger"),
@@ -541,6 +730,14 @@ async def send_notification(
 
         else:
             raise ValueError(f"Unsupported channel: {channel}")
+
+        # Record send in throttle tracker
+        if result and result.get("success"):
+            if recipient not in _throttle_tracker:
+                _throttle_tracker[recipient] = []
+            _throttle_tracker[recipient].append(datetime.utcnow())
+
+        return result
 
     except Exception as e:
         logger.error(f"Failed to send notification: {e}", exc_info=True)
@@ -699,6 +896,83 @@ async def acknowledge_notification(escalation_id: str, level: int = 0):
         del _pending_acks[ack_key]
         return {"success": True, "message": f"Escalation {escalation_id} level {level} acknowledged"}
     return {"success": False, "message": "Escalation not found or already resolved"}
+
+
+@app.post("/api/v1/notifications/send-templated", response_model=Dict[str, Any])
+async def send_templated_notification(
+    template_name: str,
+    channel: NotificationChannel,
+    recipient: str,
+    template_vars: Dict[str, Any],
+    priority: NotificationPriority = NotificationPriority.NORMAL,
+):
+    """
+    Send a notification using a pre-defined template.
+
+    Args:
+        template_name: Name of the template (alert_triggered, escalation_warning,
+                       triage_complete, false_positive)
+        channel: Notification channel
+        recipient: Recipient address/webhook URL
+        template_vars: Variables to render the template with
+        priority: Notification priority
+    """
+    try:
+        rendered = render_template(template_name, template_vars)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        result = await send_notification(
+            channel, recipient, rendered["subject"], rendered["body"], priority,
+        )
+
+        return {
+            "success": result.get("success", False),
+            "data": {**result, "template": template_name},
+            "meta": {"timestamp": datetime.utcnow().isoformat(), "request_id": str(uuid.uuid4())},
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to send templated notification: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to send notification: {str(e)}")
+
+
+@app.get("/api/v1/notifications/throttle-status/{recipient}", response_model=Dict[str, Any])
+async def get_throttle_status(recipient: str):
+    """
+    Get the current throttle status for a recipient.
+
+    Args:
+        recipient: Recipient identifier to check
+    """
+    now = datetime.utcnow()
+    window_start = now.timestamp() - THROTTLE_WINDOW_SECONDS
+
+    # Count recent sends within the window
+    recent_sends = []
+    if recipient in _throttle_tracker:
+        recent_sends = [
+            ts for ts in _throttle_tracker[recipient]
+            if ts.timestamp() > window_start
+        ]
+
+    current_count = len(recent_sends)
+    remaining = max(0, THROTTLE_MAX_PER_WINDOW - current_count)
+    is_throttled = current_count >= THROTTLE_MAX_PER_WINDOW
+
+    return {
+        "success": True,
+        "data": {
+            "recipient": recipient,
+            "current_count": current_count,
+            "max_per_window": THROTTLE_MAX_PER_WINDOW,
+            "remaining": remaining,
+            "throttled": is_throttled,
+            "window_seconds": THROTTLE_WINDOW_SECONDS,
+        },
+        "meta": {"timestamp": datetime.utcnow().isoformat()},
+    }
 
 
 @app.get("/health")

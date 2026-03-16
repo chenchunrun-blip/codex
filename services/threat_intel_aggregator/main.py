@@ -42,6 +42,7 @@ from shared.messaging import MessageConsumer, MessagePublisher
 from shared.models import SecurityAlert
 from shared.utils import Config, get_logger
 from shared.utils.cache import CacheManager, CacheKeys
+from shared.utils.prometheus import setup_prometheus
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -887,6 +888,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus metrics
+setup_prometheus(app, "threat-intel-aggregator")
 
 app.add_middleware(
     CORSMiddleware,
