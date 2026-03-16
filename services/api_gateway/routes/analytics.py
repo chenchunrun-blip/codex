@@ -572,7 +572,7 @@ def _group_risk_scores_by_time(
         return [
             TrendDataPoint(
                 timestamp=hour_key,
-                timestamp=sum(risk_scores) / len(risk_scores) if risk_scores else 0.0,
+                value=sum(risk_scores) / len(risk_scores) if risk_scores else 0.0,
                 label=hour_key.strftime("%Y-%m-%d %H:00"),
             )
             for hour_key, risk_scores in sorted(groups.items())

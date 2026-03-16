@@ -27,7 +27,7 @@ pika==1.3.2
 aio-pika==9.4.1
 
 # Data Processing
-pydantic==2.9.0
+pydantic[email]==2.9.0
 pydantic-settings==2.6.0
 python-dotenv==1.0.1
 python-multipart==0.0.17
