@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"crypto/rand"
+	"fmt"
 	"time"
 )
 
@@ -158,10 +160,16 @@ func DefaultAuditEvent(eventType AuditEventType) *AuditEvent {
 
 // 辅助函数
 
-// generateID 生成事件ID（简单实现）
+// generateID 生成事件ID（使用 crypto/rand UUID v4）
 func generateID() string {
-	// TODO: 使用UUID库实现真实的ID生成
-	return ""
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// fallback to timestamp-based ID
+		return fmt.Sprintf("evt_%d_%d", time.Now().Unix(), time.Now().Nanosecond())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 2
+	return fmt.Sprintf("evt_%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // BuildAuditEvent 构建审计事件（便利函数）

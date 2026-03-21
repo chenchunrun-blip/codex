@@ -10,11 +10,11 @@ import (
 type ComplianceFramework string
 
 const (
-	FrameworkSOC2    ComplianceFramework = "SOC2"
-	FrameworkHIPAA   ComplianceFramework = "HIPAA"
-	FrameworkGDPR    ComplianceFramework = "GDPR"
-	FrameworkPCIDSS  ComplianceFramework = "PCI-DSS"
-	FrameworkISO27001 ComplianceFramework = "ISO27001"
+	FrameworkSOC2     ComplianceFramework = "soc2"
+	FrameworkHIPAA    ComplianceFramework = "hipaa"
+	FrameworkGDPR     ComplianceFramework = "gdpr"
+	FrameworkPCIDSS   ComplianceFramework = "pci_dss"
+	FrameworkISO27001 ComplianceFramework = "iso27001"
 )
 
 // ComplianceReport 合规报告
@@ -339,21 +339,21 @@ func (g *ComplianceReportGenerator) getSOC2Controls() []*ComplianceControl {
 		{
 			ID:          "AUDIT_LOGGING_001",
 			Name:        "Audit Logging",
-			Framework:   "SOC2",
+			Framework:   "soc2",
 			Severity:    "critical",
 			Description: "System generates and records information about user access",
 		},
 		{
 			ID:          "ACCESS_CONTROL_001",
 			Name:        "Access Control",
-			Framework:   "SOC2",
+			Framework:   "soc2",
 			Severity:    "critical",
 			Description: "System prevents unauthorized access to resources",
 		},
 		{
 			ID:          "INCIDENT_RESPONSE_001",
 			Name:        "Incident Response",
-			Framework:   "SOC2",
+			Framework:   "soc2",
 			Severity:    "high",
 			Description: "Organization responds to security incidents",
 		},
@@ -366,14 +366,14 @@ func (g *ComplianceReportGenerator) getHIPAAControls() []*ComplianceControl {
 		{
 			ID:          "AUDIT_TRAIL_001",
 			Name:        "Audit Trail",
-			Framework:   "HIPAA",
+			Framework:   "hipaa",
 			Severity:    "critical",
 			Description: "Maintain audit trail of access to PHI",
 		},
 		{
 			ID:          "ENCRYPTION_001",
 			Name:        "Encryption",
-			Framework:   "HIPAA",
+			Framework:   "hipaa",
 			Severity:    "critical",
 			Description: "Encrypt PHI at rest and in transit",
 		},
@@ -386,7 +386,7 @@ func (g *ComplianceReportGenerator) getGDPRControls() []*ComplianceControl {
 		{
 			ID:          "DATA_PROTECTION_001",
 			Name:        "Data Protection",
-			Framework:   "GDPR",
+			Framework:   "gdpr",
 			Severity:    "critical",
 			Description: "Protect personal data of EU residents",
 		},
@@ -399,7 +399,7 @@ func (g *ComplianceReportGenerator) getPCIDSSControls() []*ComplianceControl {
 		{
 			ID:          "CARDHOLDER_DATA_001",
 			Name:        "Cardholder Data Protection",
-			Framework:   "PCI-DSS",
+			Framework:   "pci_dss",
 			Severity:    "critical",
 			Description: "Protect cardholder data",
 		},
@@ -412,7 +412,7 @@ func (g *ComplianceReportGenerator) getISO27001Controls() []*ComplianceControl {
 		{
 			ID:          "INFORMATION_SECURITY_001",
 			Name:        "Information Security",
-			Framework:   "ISO27001",
+			Framework:   "iso27001",
 			Severity:    "critical",
 			Description: "Implement information security management system",
 		},

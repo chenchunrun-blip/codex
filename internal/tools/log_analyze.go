@@ -251,6 +251,16 @@ func (lat *LogAnalyzeTool) analyzeLogs(params *LogAnalyzeParams) *LogAnalyzeResu
 func (lat *LogAnalyzeTool) filterLogs(entries []*LogEntry, params *LogAnalyzeParams) []*LogEntry {
 	filtered := make([]*LogEntry, 0)
 
+	// 预编译正则表达式（在循环外编译一次）
+	var patternRe *regexp.Regexp
+	if params.Pattern != "" {
+		var err error
+		patternRe, err = regexp.Compile(params.Pattern)
+		if err != nil {
+			return filtered
+		}
+	}
+
 	for _, entry := range entries {
 		// 时间范围过滤
 		if !params.StartTime.IsZero() && entry.Timestamp.Before(params.StartTime) {
@@ -260,9 +270,9 @@ func (lat *LogAnalyzeTool) filterLogs(entries []*LogEntry, params *LogAnalyzePar
 			continue
 		}
 
-		// 模式过滤
-		if params.Pattern != "" {
-			if matched, _ := regexp.MatchString(params.Pattern, entry.Message); !matched {
+		// 模式过滤（使用预编译的正则）
+		if patternRe != nil {
+			if !patternRe.MatchString(entry.Message) {
 				continue
 			}
 		}

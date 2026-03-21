@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sync"
 	"time"
 )
 
@@ -64,6 +65,7 @@ type AgentResponse struct {
 
 // OpsAgent 运维代理
 type OpsAgent struct {
+	mu            sync.RWMutex
 	ID            string
 	Role          AgentRole
 	Capabilities  []AgentCapability
@@ -143,14 +145,15 @@ func (a *OpsAgent) ProcessTask(task *AgentTask) *AgentResponse {
 
 	task.CompletedAt = time.Now()
 
-	// 更新统计
+	// 更新统计（加锁保护共享状态）
+	a.mu.Lock()
 	if task.Status == "completed" {
 		a.State.CompletedTasks++
 	} else {
 		a.State.FailedTasks++
 	}
-
 	a.State.LastActivity = time.Now()
+	a.mu.Unlock()
 
 	response.ResponseTime = int(time.Since(startTime).Milliseconds())
 
@@ -290,16 +293,21 @@ func (a *OpsAgent) HasCapability(cap AgentCapability) bool {
 
 // GetState 获取状态
 func (a *OpsAgent) GetState() AgentState {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.State
 }
 
 // UpdateKnowledge 更新知识库
 func (a *OpsAgent) UpdateKnowledge(key string, value interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.Knowledge[key] = value
 }
 
 // SecurityExpertAgent 安全专家代理
 type SecurityExpertAgent struct {
+	mu            sync.RWMutex
 	ID            string
 	Role          AgentRole
 	Capabilities  []AgentCapability
@@ -370,13 +378,15 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 
 	task.CompletedAt = time.Now()
 
+	// 更新统计（加锁保护共享状态）
+	a.mu.Lock()
 	if task.Status == "completed" {
 		a.State.CompletedTasks++
 	} else {
 		a.State.FailedTasks++
 	}
-
 	a.State.LastActivity = time.Now()
+	a.mu.Unlock()
 
 	response.ResponseTime = int(time.Since(startTime).Milliseconds())
 
@@ -538,10 +548,14 @@ func (a *SecurityExpertAgent) HasCapability(cap AgentCapability) bool {
 
 // GetState 获取状态
 func (a *SecurityExpertAgent) GetState() AgentState {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.State
 }
 
 // UpdateKnowledge 更新知识库
 func (a *SecurityExpertAgent) UpdateKnowledge(key string, value interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.Knowledge[key] = value
 }

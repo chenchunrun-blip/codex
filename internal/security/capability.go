@@ -173,28 +173,59 @@ func (cm *CapabilityManager) collectCapabilities(role string, caps *[]string, se
 }
 
 // MatchCapabilityPattern 检查能力是否匹配模式
-// 例如：能力 "file:read:/var/log/*" 是否匹配请求 "file:read:/var/log/syslog"
+// 支持 * (匹配单层) 和 ** (匹配多层) 通配符
+// 例如：能力 "file:read:/var/log/*" 匹配 "file:read:/var/log/syslog"
+// 例如：能力 "file:read:/var/**" 匹配 "file:read:/var/log/deep/nested"
 func MatchCapabilityPattern(pattern, request string) bool {
-	// 简单的 glob 匹配实现
-	// TODO: 使用更完善的 glob 库
-
 	patternParts := strings.Split(pattern, "/")
 	requestParts := strings.Split(request, "/")
 
-	if len(patternParts) != len(requestParts) {
-		return false
-	}
+	return matchParts(patternParts, requestParts)
+}
 
-	for i, p := range patternParts {
-		if p == "*" {
-			continue // 通配符匹配
-		}
-		if p != requestParts[i] {
+// matchParts 递归匹配路径部分
+func matchParts(pattern, request []string) bool {
+	pi, ri := 0, 0
+
+	for pi < len(pattern) && ri < len(request) {
+		p := pattern[pi]
+
+		if p == "**" {
+			// ** 匹配零个或多个路径段
+			// 如果 ** 是最后一个 pattern 部分，匹配所有剩余
+			if pi == len(pattern)-1 {
+				return true
+			}
+			// 尝试匹配零个到所有剩余请求段
+			for skip := 0; skip <= len(request)-ri; skip++ {
+				if matchParts(pattern[pi+1:], request[ri+skip:]) {
+					return true
+				}
+			}
 			return false
 		}
+
+		if p == "*" {
+			// * 匹配任意单个路径段
+			pi++
+			ri++
+			continue
+		}
+
+		// 精确匹配
+		if p != request[ri] {
+			return false
+		}
+		pi++
+		ri++
 	}
 
-	return true
+	// 处理尾部的 **
+	for pi < len(pattern) && pattern[pi] == "**" {
+		pi++
+	}
+
+	return pi == len(pattern) && ri == len(request)
 }
 
 // 预定义的能力常量

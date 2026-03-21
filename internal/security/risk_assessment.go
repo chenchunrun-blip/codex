@@ -43,7 +43,10 @@ const (
 
 // RiskAssessor 风险评估器
 type RiskAssessor struct {
-	config *RiskAssessorConfig
+	config            *RiskAssessorConfig
+	credentialRegexes []*regexp.Regexp
+	modifyRegexes     []*regexp.Regexp
+	networkRegexes    []*regexp.Regexp
 }
 
 // RiskAssessorConfig 风险评估器配置
@@ -75,14 +78,26 @@ func DefaultRiskAssessorConfig() *RiskAssessorConfig {
 			"/.kube/config",
 			"/etc/ssl/private",
 			"/var/lib/docker",
+			"/.gcp/credentials",
+			"/.azure/credentials",
+			"/etc/kubernetes",
+			"/var/www",
 		},
 		CredentialPatterns: []string{
-			`password\s*=`,
-			`api[_-]?key\s*=`,
-			`secret\s*=`,
-			`token\s*=`,
+			`(?i)password\s*=`,
+			`(?i)passwd\s*=`,
+			`(?i)pwd\s*=`,
+			`(?i)api[_-]?key\s*=`,
+			`(?i)secret[_-]?key?\s*=`,
+			`(?i)access[_-]?token\s*=`,
+			`(?i)token\s*=`,
+			`(?i)auth[_-]?token\s*=`,
+			`(?i)bearer\s+\S+`,
 			`--password`,
 			`-p\s*\w+`,
+			`(?i)private[_-]?key\s*=`,
+			`(?i)db[_-]?password\s*=`,
+			`(?i)connection[_-]?string\s*=`,
 		},
 		BlockThreshold:       80,
 		AdminReviewThreshold: 60,
@@ -92,16 +107,56 @@ func DefaultRiskAssessorConfig() *RiskAssessorConfig {
 
 // NewRiskAssessor 创建风险评估器
 func NewRiskAssessor() *RiskAssessor {
-	return &RiskAssessor{
-		config: DefaultRiskAssessorConfig(),
-	}
+	return newRiskAssessor(DefaultRiskAssessorConfig())
 }
 
 // NewRiskAssessorWithConfig 使用自定义配置创建风险评估器
 func NewRiskAssessorWithConfig(config *RiskAssessorConfig) *RiskAssessor {
-	return &RiskAssessor{
+	return newRiskAssessor(config)
+}
+
+// newRiskAssessor 内部构造函数，预编译正则表达式
+func newRiskAssessor(config *RiskAssessorConfig) *RiskAssessor {
+	ra := &RiskAssessor{
 		config: config,
 	}
+
+	// 预编译凭证检测正则
+	for _, pattern := range config.CredentialPatterns {
+		if re, err := regexp.Compile(pattern); err == nil {
+			ra.credentialRegexes = append(ra.credentialRegexes, re)
+		}
+	}
+
+	// 预编译系统修改检测正则
+	modifyPatterns := []string{
+		`^(sed|awk|ed)\s+`,
+		`^(chown|chmod|chgrp)\s+`,
+		`^(usermod|useradd|userdel)\s+`,
+		`^(systemctl|service)\s+(start|stop|restart|reload)`,
+		`^(apt|yum|pacman)\s+(install|remove|upgrade)`,
+		`^(systemctl|systemd)\s+`,
+	}
+	for _, pattern := range modifyPatterns {
+		if re, err := regexp.Compile(pattern); err == nil {
+			ra.modifyRegexes = append(ra.modifyRegexes, re)
+		}
+	}
+
+	// 预编译网络访问检测正则
+	networkPatterns := []string{
+		`^(curl|wget|nc|netcat|socat|telnet)\s+`,
+		`^(ss|netstat|lsof)\s+`,
+		`^(iptables|firewall-cmd)\s+`,
+		`^(ping|traceroute|mtr|nslookup|dig)\s+`,
+	}
+	for _, pattern := range networkPatterns {
+		if re, err := regexp.Compile(pattern); err == nil {
+			ra.networkRegexes = append(ra.networkRegexes, re)
+		}
+	}
+
+	return ra
 }
 
 // AssessCommand 评估命令的风险
@@ -231,8 +286,8 @@ func (ra *RiskAssessor) detectSensitivePathAccess(cmd string) bool {
 
 // detectCredentialExposure 检查凭证泄露
 func (ra *RiskAssessor) detectCredentialExposure(cmd string) bool {
-	for _, pattern := range ra.config.CredentialPatterns {
-		if matched, _ := regexp.MatchString(pattern, cmd); matched {
+	for _, re := range ra.credentialRegexes {
+		if re.MatchString(cmd) {
 			return true
 		}
 	}
@@ -241,17 +296,8 @@ func (ra *RiskAssessor) detectCredentialExposure(cmd string) bool {
 
 // detectSystemModification 检查系统修改
 func (ra *RiskAssessor) detectSystemModification(cmd string) bool {
-	modifyPatterns := []string{
-		`^(sed|awk|ed)\s+`,
-		`^(chown|chmod|chgrp)\s+`,
-		`^(usermod|useradd|userdel)\s+`,
-		`^(systemctl|service)\s+(start|stop|restart|reload)`,
-		`^(apt|yum|pacman)\s+(install|remove|upgrade)`,
-		`^(systemctl|systemd)\s+`,
-	}
-
-	for _, pattern := range modifyPatterns {
-		if matched, _ := regexp.MatchString(pattern, cmd); matched {
+	for _, re := range ra.modifyRegexes {
+		if re.MatchString(cmd) {
 			return true
 		}
 	}
@@ -260,15 +306,8 @@ func (ra *RiskAssessor) detectSystemModification(cmd string) bool {
 
 // detectNetworkAccess 检查网络访问
 func (ra *RiskAssessor) detectNetworkAccess(cmd string) bool {
-	networkPatterns := []string{
-		`^(curl|wget|nc|netcat|socat|telnet)\s+`,
-		`^(ss|netstat|lsof)\s+`,
-		`^(iptables|firewall-cmd)\s+`,
-		`^(ping|traceroute|mtr|nslookup|dig)\s+`,
-	}
-
-	for _, pattern := range networkPatterns {
-		if matched, _ := regexp.MatchString(pattern, cmd); matched {
+	for _, re := range ra.networkRegexes {
+		if re.MatchString(cmd) {
 			return true
 		}
 	}
