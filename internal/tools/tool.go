@@ -4,14 +4,13 @@ package tools
 type ToolType string
 
 const (
-	ToolTypeLogAnalyze        ToolType = "log_analyze"
-	ToolTypeMonitoringQuery   ToolType = "monitoring_query"
-	ToolTypeComplianceCheck   ToolType = "compliance_check"
-	ToolTypeCertificateAudit  ToolType = "certificate_audit"
-	ToolTypeSecurityScan      ToolType = "security_scan"
-	ToolTypeConfigAudit       ToolType = "config_audit"
-	ToolTypeNetworkTrace      ToolType = "network_trace"
-	ToolTypePortScan          ToolType = "port_scan"
+	ToolTypeLogAnalyze           ToolType = "log_analyze"
+	ToolTypeMonitoringQuery      ToolType = "monitoring_query"
+	ToolTypeComplianceCheck      ToolType = "compliance_check"
+	ToolTypeCertificateAudit     ToolType = "certificate_audit"
+	ToolTypeSecurityScan         ToolType = "security_scan"
+	ToolTypeConfigurationAudit   ToolType = "configuration_audit"
+	ToolTypeNetworkDiagnostic    ToolType = "network_diagnostic"
 )
 
 // Tool 工具接口
